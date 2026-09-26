@@ -1,0 +1,85 @@
+name: build
+
+on:
+  push:
+    branches: [ "floppy-unity" ]
+  pull_request:
+    branches: [ "floppy-unity" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: configure
+      run: ./configure
+    - name: make
+      run: make
+    - name: make check
+      run: make check
+    - name: make distcheck
+      run: make distcheck
+
+    - name: Setup Dependencies
+      run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git make bc bison flex libssl-dev libelf-dev \
+            libncurses-dev python3 zip curl ccache unzip \
+            lld-12 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+
+    - name: Fix Script Permissions
+      run: |
+          chmod +x build/ckbuild.sh
+          chmod +x build/scripts/*.sh
+          chmod +x build/lib/*.sh 2>/dev/null || true
+
+
+
+    - name: Download NetHunter Patches
+      run: |
+          mkdir -p patches/nethunter
+          BASE="https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.14"
+          curl -fL -o patches/nethunter/001-add-qcacld-3.0-injection-4.14.patch "$BASE/add-qcacld-3.0-injection-4.14.patch"
+          ls -lh patches/nethunter/
+
+    - name: Apply NetHunter Patches
+      run: |
+          for p in patches/nethunter/*.patch; do
+            echo "📌 $p"
+            patch -p1 --dry-run < "$p" && patch -p1 < "$p" || echo "⚠️ failed: $p"
+          done
+
+    - name: Build Kernel (XXKSU + NetHunter)
+      env:
+          LOG_UPLOAD: 0
+          LD: ld.lld-12
+      run: |
+          export WP="$(realpath "$PWD/..")"
+          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
+          set -o pipefail
+          bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
+
+    - name: Upload build log on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log-failure
+        path: |
+            build.log
+            out/.config
+        if-no-files-found: warn
+        overwrite: true
+
+    - name: Upload Artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
+          path: build/Floppy_*.zip
+          if-no-files-found: error
+          overwrite: true
