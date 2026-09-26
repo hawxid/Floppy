@@ -1,4 +1,4 @@
-name: Build FloppyKernel XXKSU + qcacld3 inject
+name: Build FloppyKernel XXKSU + NetHunter WiFi (Ginkgo)
 
 on:
   workflow_dispatch:
@@ -24,28 +24,13 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # 1. DEPENDENSI SUDAH DILENGKAPI
       - name: Setup Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             git make bc bison flex libssl-dev libelf-dev \
-            libncurses-dev python3 zip curl ccache \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            libmpc-dev libgmp-dev libmpfr-dev lz4 liblz4-tool \
-            binutils build-essential lld \
-            python-is-python3 libtinfo5 openjdk-11-jdk-headless
-
-      # 2. INTEGRASI CCACHE KEDALAM workflow
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.ccache
-            ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache-ginkgo-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-ginkgo-
+            libncurses-dev python3 lld zip curl ccache \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Fix Script Permissions
         run: |
@@ -67,28 +52,14 @@ jobs:
             patch -p1 --dry-run < "$p" && patch -p1 < "$p" || echo "⚠️ failed: $p"
           done
 
-      # 3. AKTIVASI CCACHE DI SCRIPT UTAMA
       - name: Build Kernel (XXKSU + NetHunter)
         env:
           LOG_UPLOAD: 0
         run: |
-          # Eksport konfigurasi ccache
-          export USE_CCACHE=1
-          export CCACHE_DIR=~/.ccache
-          
-          # Batasi ukuran cache maksimal 5GB agar aman di Github Actions
-          ccache -M 5G
-          
-          # Tampilkan statistik awal ccache
-          ccache -s
-          
           export WP="$(realpath "$PWD/..")"
           echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
           set -o pipefail
           bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
-          
-          # Tampilkan statistik akhir untuk monitoring progress ccache
-          ccache -s
 
       - name: Upload build log on failure
         if: failure()
@@ -109,3 +80,4 @@ jobs:
           path: build/Floppy_*.zip
           if-no-files-found: error
           overwrite: true
+          
