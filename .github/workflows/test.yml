@@ -33,45 +33,12 @@ jobs:
             lld-12 \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-          # Paksa ld.lld mengarah ke versi 12 (bukan lld-14 default)
-          sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
-          echo "=== Verifikasi linker ==="
-          ld.lld --version
-          which ld.lld
-
       - name: Fix Script Permissions
         run: |
           chmod +x build/ckbuild.sh
           chmod +x build/scripts/*.sh
           chmod +x build/lib/*.sh 2>/dev/null || true
-
-      - name: Patch vDSO Makefile (Nonaktifkan LTO untuk vDSO)
-        run: |
-          VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
-          if [ -f "$VDSO_MAKEFILE" ]; then
-            echo "📝 Patching $VDSO_MAKEFILE..."
-            # Tambahkan $(CC_FLAGS_LTO) ke daftar CFLAGS_REMOVE_vgettimeofday.o
-            sed -i 's|^CFLAGS_REMOVE_vgettimeofday.o = \(.*\)|CFLAGS_REMOVE_vgettimeofday.o = \1 $(CC_FLAGS_LTO)|' "$VDSO_MAKEFILE"
-            echo "=== Hasil patch ==="
-            grep "CFLAGS_REMOVE_vgettimeofday.o" "$VDSO_MAKEFILE"
-          else
-            echo "⚠️ File $VDSO_MAKEFILE tidak ditemukan, lewati patch."
-          fi
-
-      - name: Download NetHunter Patches
-        run: |
-          mkdir -p patches/nethunter
-          BASE="https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.14"
-          curl -fL -o patches/nethunter/001-add-qcacld-3.0-injection-4.14.patch "$BASE/add-qcacld-3.0-injection-4.14.patch"
-          ls -lh patches/nethunter/
-
-      - name: Apply NetHunter Patches
-        run: |
-          for p in patches/nethunter/*.patch; do
-            echo "📌 $p"
-            patch -p1 --dry-run < "$p" && patch -p1 < "$p" || echo "⚠️ failed: $p"
-          done
-
+          
       - name: Build Kernel (XXKSU + NetHunter)
         env:
           LOG_UPLOAD: 0
@@ -82,16 +49,6 @@ jobs:
           set -o pipefail
           bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
 
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-failure
-          path: |
-            build.log
-            out/.config
-          if-no-files-found: warn
-          overwrite: true
 
       - name: Upload Artifact
         if: success()
