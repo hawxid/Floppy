@@ -29,8 +29,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             git make bc bison flex libssl-dev libelf-dev \
-            libncurses-dev python3 lld zip curl ccache \
+            libncurses-dev python3 zip curl ccache unzip \
+            lld-12 \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+          # Buat symlink agar ld.lld menunjuk ke versi 12
+          sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
+          ld.lld --version
 
       - name: Fix Script Permissions
         run: |
@@ -55,6 +60,7 @@ jobs:
       - name: Build Kernel (XXKSU + NetHunter)
         env:
           LOG_UPLOAD: 0
+          LD: ld.lld-12
         run: |
           export WP="$(realpath "$PWD/..")"
           echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
@@ -80,4 +86,3 @@ jobs:
           path: build/Floppy_*.zip
           if-no-files-found: error
           overwrite: true
-          
