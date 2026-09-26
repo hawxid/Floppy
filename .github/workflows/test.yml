@@ -33,15 +33,30 @@ jobs:
             lld-12 \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-          # Buat symlink agar ld.lld menunjuk ke versi 12
+          # Paksa ld.lld mengarah ke versi 12 (bukan lld-14 default)
           sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
+          echo "=== Verifikasi linker ==="
           ld.lld --version
+          which ld.lld
 
       - name: Fix Script Permissions
         run: |
           chmod +x build/ckbuild.sh
           chmod +x build/scripts/*.sh
           chmod +x build/lib/*.sh 2>/dev/null || true
+
+      - name: Patch vDSO Makefile (Nonaktifkan LTO untuk vDSO)
+        run: |
+          VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
+          if [ -f "$VDSO_MAKEFILE" ]; then
+            echo "📝 Patching $VDSO_MAKEFILE..."
+            # Tambahkan $(CC_FLAGS_LTO) ke daftar CFLAGS_REMOVE_vgettimeofday.o
+            sed -i 's|^CFLAGS_REMOVE_vgettimeofday.o = \(.*\)|CFLAGS_REMOVE_vgettimeofday.o = \1 $(CC_FLAGS_LTO)|' "$VDSO_MAKEFILE"
+            echo "=== Hasil patch ==="
+            grep "CFLAGS_REMOVE_vgettimeofday.o" "$VDSO_MAKEFILE"
+          else
+            echo "⚠️ File $VDSO_MAKEFILE tidak ditemukan, lewati patch."
+          fi
 
       - name: Download NetHunter Patches
         run: |
