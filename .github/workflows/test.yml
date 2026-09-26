@@ -33,7 +33,7 @@ jobs:
             libncurses-dev python3 zip curl ccache \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             libmpc-dev libgmp-dev libmpfr-dev lz4 liblz4-tool \
-            binutils build-essential basic-bsd-user-cmdrom \
+            binutils build-essential \
             python-is-python3 libtinfo5 openjdk-11-jdk-headless
 
       # 2. INTEGRASI CCACHE KEDALAM workflow
