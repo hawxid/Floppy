@@ -1,0 +1,111 @@
+name: Build FloppyKernel XXKSU + qcacld3 inject
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # 1. DEPENDENSI SUDAH DILENGKAPI
+      - name: Setup Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git make bc bison flex libssl-dev libelf-dev \
+            libncurses-dev python3 zip curl ccache \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            libmpc-dev libgmp-dev libmpfr-dev lz4 liblz4-tool \
+            binutils build-essential basic-bsd-user-cmdrom \
+            python-is-python3 libtinfo5 openjdk-11-jdk-headless
+
+      # 2. INTEGRASI CCACHE KEDALAM workflow
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ccache
+            ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-ccache-ginkgo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-ginkgo-
+
+      - name: Fix Script Permissions
+        run: |
+          chmod +x build/ckbuild.sh
+          chmod +x build/scripts/*.sh
+          chmod +x build/lib/*.sh 2>/dev/null || true
+
+      - name: Download NetHunter Patches
+        run: |
+          mkdir -p patches/nethunter
+          BASE="https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.14"
+          curl -fL -o patches/nethunter/001-add-qcacld-3.0-injection-4.14.patch "$BASE/add-qcacld-3.0-injection-4.14.patch"
+          ls -lh patches/nethunter/
+
+      - name: Apply NetHunter Patches
+        run: |
+          for p in patches/nethunter/*.patch; do
+            echo "📌 $p"
+            patch -p1 --dry-run < "$p" && patch -p1 < "$p" || echo "⚠️ failed: $p"
+          done
+
+      # 3. AKTIVASI CCACHE DI SCRIPT UTAMA
+      - name: Build Kernel (XXKSU + NetHunter)
+        env:
+          LOG_UPLOAD: 0
+        run: |
+          # Eksport konfigurasi ccache
+          export USE_CCACHE=1
+          export CCACHE_DIR=~/.ccache
+          
+          # Batasi ukuran cache maksimal 5GB agar aman di Github Actions
+          ccache -M 5G
+          
+          # Tampilkan statistik awal ccache
+          ccache -s
+          
+          export WP="$(realpath "$PWD/..")"
+          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
+          set -o pipefail
+          bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
+          
+          # Tampilkan statistik akhir untuk monitoring progress ccache
+          ccache -s
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-failure
+          path: |
+            build.log
+            out/.config
+          if-no-files-found: warn
+          overwrite: true
+
+      - name: Upload Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
+          path: build/Floppy_*.zip
+          if-no-files-found: error
+          overwrite: true
