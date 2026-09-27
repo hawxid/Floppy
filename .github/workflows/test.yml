@@ -1,4 +1,4 @@
-name: Build FloppyKernel +patch
+name: test Build FloppyKernel +patch
 
 on:
   workflow_dispatch:
@@ -25,8 +25,57 @@ jobs:
           fetch-depth: 1
 
       # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
-      - name: cek aply
+      - name: Apply packet_inject.patch
         run: |
-          git apply --check patch/packet_inject.patch
+          PATCH_FILE="patch/packet_inject.patch"
+          git config user.email "ci@github.local"
+          git config user.name  "CI Builder"
+
+          echo "::group::Attempt 1 — git apply --3way"
+          if git apply --3way --whitespace=nowarn "$PATCH_FILE"; then
+            echo "✅ Applied via git apply --3way"
+            echo "ok=1" >> $GITHUB_ENV
+          else
+            echo "⚠️ --3way failed, rolling back"
+            git checkout -- . 2>/dev/null || true
+            git clean -fd drivers/staging/qcacld-3.0 drivers/staging/qca-wifi-host-cmn 2>/dev/null || true
+          fi
+          echo "::endgroup::"
+
+          if [ -z "$ok" ]; then
+            echo "::group::Attempt 2 — patch -p1 --fuzz=3"
+            if patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch < "$PATCH_FILE"; then
+              echo "✅ Applied via patch -p1 --fuzz=3"
+              echo "ok=1" >> $GITHUB_ENV
+            else
+              echo "⚠️ patch --fuzz partially applied"
+            fi
+            echo "::endgroup::"
+          fi
+
+          echo "--- .rej files ---"
+          find . -name '*.rej' -print || true
+          echo "--- git diff stat ---"
+          git --no-pager diff --stat | tail -60 || true
+
+      - name: Verify injection
+        run: |
+          ok=1
+          test -f drivers/staging/qcacld-3.0/core/wma/src/wma_frame_inject.c \
+            && echo "✅ wma_frame_inject.c present" \
+            || { echo "❌ wma_frame_inject.c missing"; ok=0; }
+
+          test -f drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_frame_inject.c \
+            && echo "✅ wlan_hdd_frame_inject.c present" \
+            || { echo "❌ wlan_hdd_frame_inject.c missing"; ok=0; }
+
+          if find . -name '*.rej' -print -quit | grep -q .; then
+            echo "⚠️ .rej files exist:"
+            find . -name '*.rej' -print
+            ok=0
+          fi
+
+          [ "$ok" = "1" ] || { echo "❌ patch verification failed"; exit 1; }
+          echo "✅ patch verified"
           
       
