@@ -17,6 +17,7 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,11 +28,46 @@ jobs:
       # ---------- Dependencies ----------
       - name: Setup Dependencies
         run: |
+          sudo apt-get update
           sudo apt-get install -y \
-          git make bc bison flex libssl-dev libelf-dev \
-          libncurses-dev python3 zip curl ccache \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang llvm lld
+            git make bc bison flex libssl-dev libelf-dev \
+            libncurses-dev python3 zip unzip curl wget \
+            ccache patch rsync \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            clang llvm lld
+
+      # ---------- Download Clang 23 hardcoded ----------
+      - name: Download AOSP Clang r614150 (Clang 23.0.1)
+        run: |
+          CLANG_DIR="/home/runner/aosp-clang"
+          mkdir -p "$CLANG_DIR"
+
+          URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/28337064939c0b4bb5804cddf35fb03d860edcf6/clang-r614150.tar.gz"
+
+          echo "📥 Downloading: $URL"
+          if ! curl -fLSsS --retry 3 --retry-delay 5 -o /tmp/clang.tar.gz "$URL"; then
+            echo "❌ Download failed"; exit 1
+          fi
+
+          echo "--- file type ---"
+          file /tmp/clang.tar.gz
+          ls -lh /tmp/clang.tar.gz
+
+          if ! tar -xf /tmp/clang.tar.gz -C "$CLANG_DIR"; then
+            echo "❌ Extract failed"; exit 1
+          fi
+          rm -f /tmp/clang.tar.gz
+
+          # Placeholder elfedit
+          touch "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
+          touch "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
+          chmod +x "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
+          chmod +x "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
+
+          echo "--- verifikasi clang ---"
+          "$CLANG_DIR/bin/clang" --version | head -1
+          test -f "$CLANG_DIR/bin/clang" || { echo "❌ clang binary nggak ada"; exit 1; }
+          echo "✅ Clang siap"
 
       # ---------- Apply patch NetHunter ----------
       - name: Apply packet_inject.patch
@@ -55,10 +91,9 @@ jobs:
               < "$PATCH_FILE" || true
           fi
 
-          echo "--- .rej sebelum dibersihin ---"
+          echo "--- .rej ---"
           find . -name '*.rej' -print || true
           find . -name '*.rej' -delete
-          echo "✅ .rej dibersihin"
 
       - name: Fix header include paths
         run: |
@@ -66,9 +101,6 @@ jobs:
           ROOT_INC="$QCA/inc"
           HDD_INC="$QCA/core/hdd/inc"
           WMA_INC="$QCA/core/wma/inc"
-
-          echo "=== SEBELUM ==="
-          find $QCA -name 'wma_frame_inject.h' -o -name 'wlan_hdd_frame_inject.h' 2>/dev/null
 
           for f in wlan_hdd_frame_inject.h \
                    wlan_hdd_frame_validate.h \
@@ -86,9 +118,6 @@ jobs:
             echo "✅ wma→inc/ + hdd/inc/: wma_frame_inject.h"
           fi
 
-          echo "=== SESUDAH ==="
-          find $QCA -name 'wma_frame_inject.h' -o -name 'wlan_hdd_frame_inject.h' 2>/dev/null
-
           test -f "$ROOT_INC/wma_frame_inject.h" \
             || { echo "❌ wma_frame_inject.h nggak ke-copy"; exit 1; }
           test -f "$ROOT_INC/wlan_hdd_frame_inject.h" \
@@ -101,9 +130,7 @@ jobs:
             || { echo "❌ wma_frame_inject.c hilang"; exit 1; }
           test -f drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_frame_inject.c \
             || { echo "❌ wlan_hdd_frame_inject.c hilang"; exit 1; }
-          test -f drivers/staging/qcacld-3.0/core/wma/inc/wma_frame_inject.h \
-            || { echo "❌ wma_frame_inject.h hilang"; exit 1; }
-          echo "✅ File injection ada — patch sukses"
+          echo "✅ Patch sukses"
 
       - name: Fix Script Permissions
         run: |
@@ -111,13 +138,16 @@ jobs:
           chmod +x build/scripts/*.sh
           chmod +x build/lib/*.sh 2>/dev/null || true
 
-      # ---------- Build ----------
+      # ---------- Build pakai Clang custom ----------
       - name: Build Kernel (XXKSU + NetHunter)
         env:
           LOG_UPLOAD: 0
+          CLANG_TYPE: custom
+          CUST_DIR: /home/runner/aosp-clang
         run: |
           export WP="$(realpath "$PWD/..")"
           echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
+          echo "   Toolchain: AOSP Clang 23.0.1 (custom)"
           set -o pipefail
           bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
 
