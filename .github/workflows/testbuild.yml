@@ -1,0 +1,107 @@
+name: Build FloppyKernel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
+      - name: Fetch Ikteach WiFi Drivers
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ikteach/ginkgo_Kernel.git ikteach-kernel
+          cd ikteach-kernel
+          git sparse-checkout set \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn
+          cd ..
+      - name: Replace WiFi Driver Directories
+        run: |
+          rm -rf drivers/staging/qcacld-3.0
+          rm -rf drivers/staging/qca-wifi-host-cmn
+          cp -a ikteach-kernel/drivers/staging/qcacld-3.0 drivers/staging/
+          cp -a ikteach-kernel/drivers/staging/qca-wifi-host-cmn drivers/staging/
+          echo "✅ WiFi drivers replaced with ikteach versions."
+          ls -lh drivers/staging/qcacld-3.0/ | head -3
+          ls -lh drivers/staging/qca-wifi-host-cmn/ | head -3
+      # ---------- Patch kompatibilitas kernel 4.14 ----------
+      - name: Patch ktime_get_boot_ns (compat 4.14)
+        run: |
+          echo "🔧 Mengganti ktime_get_boot_ns() → ktime_get_boottime_ns()"
+          FILES=$(grep -rl "ktime_get_boot_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "✅ Tidak ada file yang perlu dipatch."
+            exit 0
+          fi
+          echo "📄 File yang akan dipatch:"
+          echo "$FILES"
+          for f in $FILES; do
+            # [^_] memastikan bpf_ktime_get_boot_ns tidak ikut terubah
+            sed -i 's/\([^_]\)ktime_get_boot_ns/\1ktime_get_boottime_ns/g' "$f"
+            echo "   ✅ $f"
+          done
+          echo "🔍 Verifikasi:"
+          grep -rn "ktime_get_boottime_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn | head -10 || true
+      # ---------- Dependencies ----------
+      - name: Setup Dependencies
+        run: |
+          sudo apt-get install -y \
+          git make bc bison flex libssl-dev libelf-dev \
+          libncurses-dev python3 zip curl ccache \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+          clang llvm lld
+      - name: Fix Script Permissions
+        run: |
+          chmod +x build/ckbuild.sh
+          chmod +x build/scripts/*.sh
+          chmod +x build/lib/*.sh 2>/dev/null || true
+      # ---------- Build ----------
+      - name: Build Kernel (XXKSU + NetHunter)
+        env:
+          LOG_UPLOAD: 0
+        run: |
+          export WP="$(realpath "$PWD/..")"
+          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
+          set -o pipefail
+          bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
+      # ---------- Artifacts ----------
+      - name: Upload Kernel Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
+          path: build/Floppy_*.zip
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload Build Log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
+          overwrite: true
