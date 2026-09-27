@@ -28,6 +28,7 @@ jobs:
       - name: Setup Dependencies
         run: |
           sudo apt-get update
+          sudo apt upgrade
           sudo apt-get install -y \
             git make bc bison flex libssl-dev libelf-dev \
             libncurses-dev python3 zip curl ccache patch \
