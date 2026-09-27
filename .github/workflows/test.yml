@@ -82,6 +82,8 @@ jobs:
           done
 
           ls -la /tmp/patch-report/
+      - name: Clean up leftover .rej (hunk already present)
+        run: find . -name '*.rej' -delete
 
       - name: Verify injection symbols
         id: verify
