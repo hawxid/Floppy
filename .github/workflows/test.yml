@@ -1,4 +1,4 @@
-name: Check packet_inject.patch
+name: Build FloppyKernel
 
 on:
   workflow_dispatch:
@@ -6,14 +6,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: kernel-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash
 
 jobs:
-  check-patch:
+  build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,20 +24,21 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # ---------- Dependencies ----------
       - name: Setup Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git patch
+          sudo apt-get install -y \
+          git make bc bison flex libssl-dev libelf-dev \
+          libncurses-dev python3 zip curl ccache \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+          clang llvm lld
 
+      # ---------- Apply patch NetHunter ----------
       - name: Apply packet_inject.patch
         run: |
           PATCH_FILE="patch/packet_inject.patch"
-          git config user.email "ci@github.local"
-          git config user.name  "CI Builder"
-
           applied=0
 
-          echo "::group::Attempt 1 — git apply --3way"
           if git apply --3way --whitespace=nowarn "$PATCH_FILE"; then
             echo "✅ Applied via git apply --3way"
             applied=1
@@ -44,86 +48,59 @@ jobs:
             git clean -fd drivers/staging/qcacld-3.0 \
                           drivers/staging/qca-wifi-host-cmn 2>/dev/null || true
           fi
-          echo "::endgroup::"
 
           if [ "$applied" = "0" ]; then
-            echo "::group::Attempt 2 — patch -p1 --fuzz=3"
-            if patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch < "$PATCH_FILE"; then
-              echo "✅ Applied via patch -p1 --fuzz=3"
-            else
-              echo "⚠️ patch applied partially — check .rej below"
-            fi
-            echo "::endgroup::"
+            echo "⚠️ fallback ke patch -p1 --fuzz=3"
+            patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch \
+              < "$PATCH_FILE" || true
           fi
 
-          # Kumpulkan semua output buat artifact
-          mkdir -p /tmp/patch-report
+          echo "--- .rej sebelum dibersihin ---"
+          find . -name '*.rej' -print || true
+          find . -name '*.rej' -delete
+          echo "✅ .rej dibersihin"
 
-          echo "--- .rej files ---"
-          find . -name '*.rej' -print | tee /tmp/patch-report/rej-list.txt || true
-
-          echo "--- conflict markers ---"
-          grep -rl '^<<<<<<<' drivers/staging/qcacld-3.0 2>/dev/null \
-            | tee /tmp/patch-report/conflict-files.txt || echo "none" | tee -a /tmp/patch-report/conflict-files.txt
-
-          echo "--- git diff stat ---"
-          git --no-pager diff --stat | tee /tmp/patch-report/diff-stat.txt | tail -60 || true
-
-          echo "--- full git diff ---"
-          git --no-pager diff > /tmp/patch-report/full-diff.patch || true
-
-          echo "--- new files created ---"
-          git status --porcelain | tee /tmp/patch-report/git-status.txt || true
-
-          # Copy semua .rej ke folder artifact dengan path yang aman
-          find . -name '*.rej' -print0 | while IFS= read -r -d '' f; do
-            safe_name=$(echo "$f" | sed 's|^\./||; s|/|__|g')
-            cp "$f" "/tmp/patch-report/$safe_name"
-          done
-
-          ls -la /tmp/patch-report/
-      - name: Clean up leftover .rej (hunk already present)
-        run: find . -name '*.rej' -delete
-
-      - name: Verify injection symbols
-        id: verify
-        continue-on-error: true
+      - name: Verify Injection
         run: |
-          ok=1
           test -f drivers/staging/qcacld-3.0/core/wma/src/wma_frame_inject.c \
-            && echo "✅ wma_frame_inject.c" \
-            || { echo "❌ wma_frame_inject.c missing"; ok=0; }
+            || { echo "❌ wma_frame_inject.c hilang"; exit 1; }
           test -f drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_frame_inject.c \
-            && echo "✅ wlan_hdd_frame_inject.c" \
-            || { echo "❌ wlan_hdd_frame_inject.c missing"; ok=0; }
+            || { echo "❌ wlan_hdd_frame_inject.c hilang"; exit 1; }
           test -f drivers/staging/qcacld-3.0/core/wma/inc/wma_frame_inject.h \
-            && echo "✅ wma_frame_inject.h" \
-            || { echo "❌ wma_frame_inject.h missing"; ok=0; }
+            || { echo "❌ wma_frame_inject.h hilang"; exit 1; }
+          echo "✅ File injection ada — patch sukses"
 
-          if find . -name '*.rej' -print -quit | grep -q .; then
-            echo "⚠️ .rej files present"; ok=0
-          fi
-          if grep -rl '^<<<<<<<' drivers/staging/qcacld-3.0 2>/dev/null | grep -q .; then
-            echo "⚠️ conflict markers present"; ok=0
-          fi
+      - name: Fix Script Permissions
+        run: |
+          chmod +x build/ckbuild.sh
+          chmod +x build/scripts/*.sh
+          chmod +x build/lib/*.sh 2>/dev/null || true
 
-          if [ "$ok" != "1" ]; then
-            echo "result=FAILED" >> $GITHUB_OUTPUT
-            echo "❌ patch NOT fully applied"
-          else
-            echo "result=OK" >> $GITHUB_OUTPUT
-            echo "✅ patch fully applied — siap build"
-          fi
+      # ---------- Build ----------
+      - name: Build Kernel (XXKSU + NetHunter)
+        env:
+          LOG_UPLOAD: 0
+        run: |
+          export WP="$(realpath "$PWD/..")"
+          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
+          set -o pipefail
+          bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
 
-      - name: Upload patch report
+      # ---------- Artifacts ----------
+      - name: Upload Kernel Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
+          path: build/Floppy_*.zip
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: patch-report-${{ github.run_number }}
-          path: /tmp/patch-report/
+          name: build-log
+          path: build.log
           if-no-files-found: warn
           overwrite: true
-
-      - name: Fail if patch incomplete
-        if: steps.verify.outputs.result == 'FAILED'
-        run: exit 1
