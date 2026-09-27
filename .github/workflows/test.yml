@@ -59,7 +59,44 @@ jobs:
           find . -name '*.rej' -print || true
           find . -name '*.rej' -delete
           echo "✅ .rej dibersihin"
+          
+      - name: Fix header include paths
+        run: |
+          QCA="drivers/staging/qcacld-3.0"
+          ROOT_INC="$QCA/inc"
+          HDD_INC="$QCA/core/hdd/inc"
+          WMA_INC="$QCA/core/wma/inc"
 
+          echo "=== SEBELUM ==="
+          find $QCA -name 'wma_frame_inject.h' -o -name 'wlan_hdd_frame_inject.h' 2>/dev/null
+
+          # --- 1. Copy header HDD baru ke root inc ---
+          for f in wlan_hdd_frame_inject.h \
+                   wlan_hdd_frame_validate.h \
+                   wlan_hdd_inject_security.h \
+                   wlan_hdd_frame_inject_debug.h; do
+            if [ -f "$HDD_INC/$f" ]; then
+              cp -f "$HDD_INC/$f" "$ROOT_INC/$f"
+              echo "✅ hdd→inc/: $f"
+            fi
+          done
+
+          # --- 2. Copy header WMA baru ke SEMUA lokasi ---
+          if [ -f "$WMA_INC/wma_frame_inject.h" ]; then
+            cp -f "$WMA_INC/wma_frame_inject.h" "$ROOT_INC/"
+            cp -f "$WMA_INC/wma_frame_inject.h" "$HDD_INC/"
+            echo "✅ wma→inc/ + hdd/inc/: wma_frame_inject.h"
+          fi
+
+          echo "=== SESUDAH ==="
+          find $QCA -name 'wma_frame_inject.h' -o -name 'wlan_hdd_frame_inject.h' 2>/dev/null
+
+          # Sanity check
+          test -f "$ROOT_INC/wma_frame_inject.h" \
+            || { echo "❌ wma_frame_inject.h nggak ke-copy"; exit 1; }
+          test -f "$ROOT_INC/wlan_hdd_frame_inject.h" \
+            || { echo "❌ wlan_hdd_frame_inject.h nggak ke-copy"; exit 1; }
+          echo "✅ Semua header ke-copy"
       - name: Verify Injection
         run: |
           test -f drivers/staging/qcacld-3.0/core/wma/src/wma_frame_inject.c \
@@ -70,21 +107,6 @@ jobs:
             || { echo "❌ wma_frame_inject.h hilang"; exit 1; }
           echo "✅ File injection ada — patch sukses"
       - name: Fix header include path
-        run: |
-          INC="drivers/staging/qcacld-3.0/inc"
-          SRC="drivers/staging/qcacld-3.0/core/hdd/inc"
-
-          for f in wlan_hdd_frame_inject.h \
-                   wlan_hdd_frame_validate.h \
-                   wlan_hdd_inject_security.h \
-                   wlan_hdd_frame_inject_debug.h; do
-            if [ -f "$SRC/$f" ] && [ ! -e "$INC/$f" ]; then
-              cp "$SRC/$f" "$INC/$f"
-              echo "✅ Copy $f ke inc/"
-            fi
-          done
-
-          ls -la $INC/wlan_hdd_frame_*.h $INC/wlan_hdd_inject_*.h 2>/dev/null
 
       - name: Fix Script Permissions
         run: |
