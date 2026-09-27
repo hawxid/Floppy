@@ -1,4 +1,4 @@
-name: Build FloppyKernel
+name: Build FloppyKernel +patch
 
 on:
   workflow_dispatch:
