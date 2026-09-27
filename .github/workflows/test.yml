@@ -69,6 +69,22 @@ jobs:
           test -f drivers/staging/qcacld-3.0/core/wma/inc/wma_frame_inject.h \
             || { echo "❌ wma_frame_inject.h hilang"; exit 1; }
           echo "✅ File injection ada — patch sukses"
+      - name: Fix header include path
+        run: |
+          INC="drivers/staging/qcacld-3.0/inc"
+          SRC="drivers/staging/qcacld-3.0/core/hdd/inc"
+
+          for f in wlan_hdd_frame_inject.h \
+                   wlan_hdd_frame_validate.h \
+                   wlan_hdd_inject_security.h \
+                   wlan_hdd_frame_inject_debug.h; do
+            if [ -f "$SRC/$f" ] && [ ! -e "$INC/$f" ]; then
+              cp "$SRC/$f" "$INC/$f"
+              echo "✅ Copy $f ke inc/"
+            fi
+          done
+
+          ls -la $INC/wlan_hdd_frame_*.h $INC/wlan_hdd_inject_*.h 2>/dev/null
 
       - name: Fix Script Permissions
         run: |
