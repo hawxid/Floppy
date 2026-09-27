@@ -49,7 +49,7 @@ jobs:
           shopt -s nullglob
           for p in patches/nethunter/*.patch; do
             echo "📌 Applying $p"
-            if patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < "$p"; then
+            if patch -p1 --fuzz=3 --no-backup-if-mismatch < "$p"; then
               echo "✅ applied: $p"
             else
               echo "⚠️ partial/failed: $p (continuing)"
