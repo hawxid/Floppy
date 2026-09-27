@@ -24,57 +24,60 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
+      - name: Fetch Ikteach WiFi Drivers
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ikteach/ginkgo_Kernel.git ikteach-kernel
+          cd ikteach-kernel
+          git sparse-checkout set \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn
+          cd ..
+      - name: Replace WiFi Driver Directories
+        run: |
+          rm -rf drivers/staging/qcacld-3.0
+          rm -rf drivers/staging/qca-wifi-host-cmn
+          cp -a ikteach-kernel/drivers/staging/qcacld-3.0 drivers/staging/
+          cp -a ikteach-kernel/drivers/staging/qca-wifi-host-cmn drivers/staging/
+          echo "✅ WiFi drivers replaced with ikteach versions."
+          ls -lh drivers/staging/qcacld-3.0/ | head -3
+          ls -lh drivers/staging/qca-wifi-host-cmn/ | head -3
+      # ---------- Patch kompatibilitas kernel 4.14 ----------
+      - name: Patch ktime_get_boot_ns (compat 4.14)
+        run: |
+          echo "🔧 Mengganti ktime_get_boot_ns() → ktime_get_boottime_ns()"
+          FILES=$(grep -rl "ktime_get_boot_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "✅ Tidak ada file yang perlu dipatch."
+            exit 0
+          fi
+          echo "📄 File yang akan dipatch:"
+          echo "$FILES"
+          for f in $FILES; do
+            # [^_] memastikan bpf_ktime_get_boot_ns tidak ikut terubah
+            sed -i 's/\([^_]\)ktime_get_boot_ns/\1ktime_get_boottime_ns/g' "$f"
+            echo "   ✅ $f"
+          done
+          echo "🔍 Verifikasi:"
+          grep -rn "ktime_get_boottime_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn | head -10 || true
       # ---------- Dependencies ----------
       - name: Setup Dependencies
         run: |
-          sudo apt-get update
-          sudo apt upgrade
           sudo apt-get install -y \
-            git make bc bison flex libssl-dev libelf-dev \
-            libncurses-dev python3 zip curl ccache patch \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            clang llvm lld
-
-      # ---------- NetHunter Patches ----------
-      - name: Download NetHunter Patches
-        run: |
-          mkdir -p patches/nethunter
-          BASE="https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel-builder/-/raw/main/patches/4.14"
-          curl -fL -o patches/nethunter/001-add-qcacld-3.0-injection-4.14.patch \
-            "$BASE/add-qcacld-3.0-injection-4.14.patch"
-          ls -lh patches/nethunter/
-
-      - name: Apply NetHunter Patches
-        run: |
-          shopt -s nullglob
-          for p in patches/nethunter/*.patch; do
-            echo "📌 Applying $p"
-            if patch -p1 --fuzz=3 --no-backup-if-mismatch < "$p"; then
-              echo "✅ applied: $p"
-            else
-              echo "⚠️ partial/failed: $p (continuing)"
-            fi
-          done
-          echo "--- remaining rejects (if any) ---"
-          find . -name '*.rej' -print || true
-
-      - name: Verify Injection Symbols
-        run: |
-          if grep -Rq "wma_frame_inject" drivers/staging/qcacld-3.0/core/wma/src/ 2>/dev/null; then
-            echo "✅ NetHunter injection code present"
-          else
-            echo "❌ Injection code NOT present — patch did not apply cleanly"
-            echo "The kernel will still build but WITHOUT monitor-mode / frame-injection."
-            exit 1
-          fi
-
-      # ---------- Script permissions ----------
+          git make bc bison flex libssl-dev libelf-dev \
+          libncurses-dev python3 zip curl ccache \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+          clang llvm lld
       - name: Fix Script Permissions
         run: |
           chmod +x build/ckbuild.sh
-          chmod +x build/scripts/*.sh 2>/dev/null || true
+          chmod +x build/scripts/*.sh
           chmod +x build/lib/*.sh 2>/dev/null || true
-
       # ---------- Build ----------
       - name: Build Kernel (XXKSU + NetHunter)
         env:
@@ -84,7 +87,6 @@ jobs:
           echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
           set -o pipefail
           bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
-
       # ---------- Artifacts ----------
       - name: Upload Kernel Artifact
         if: success()
@@ -95,8 +97,8 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-      - name: Upload Build Log
-        if: always()
+      - name: Upload Build Log (on failure)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
