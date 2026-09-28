@@ -1,4 +1,4 @@
-name: Build FloppyKernel
+name: test
 
 on:
   workflow_dispatch:
