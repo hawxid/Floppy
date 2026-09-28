@@ -29,5 +29,5 @@ jobs:
       # ---------- Apply patch NetHunter ----------
       - name: Apply packet_inject.patch
         run: |
-          git apply --check patch/test.patch"
+          git apply --check patch/test.patch
           
