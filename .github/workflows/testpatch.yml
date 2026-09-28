@@ -1,0 +1,49 @@
+name: Build FloppyKernel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+
+      # ---------- Apply patch NetHunter ----------
+      - name: Apply packet_inject.patch
+        run: |
+          PATCH_FILE="patch/test.patch"
+          applied=0
+
+          if git apply --3way --whitespace=nowarn "$PATCH_FILE"; then
+            echo "✅ Applied via git apply --3way"
+            applied=1
+          else
+            echo "⚠️ --3way failed, rolling back"
+            git checkout -- . 2>/dev/null || true
+            git clean -fd drivers/staging/qcacld-3.0 \
+                          drivers/staging/qca-wifi-host-cmn 2>/dev/null || true
+          fi
+
+          if [ "$applied" = "0" ]; then
+            echo "⚠️ fallback ke patch -p1 --fuzz=3"
+            patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch \
+              < "$PATCH_FILE" || true
+          
