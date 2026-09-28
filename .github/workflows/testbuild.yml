@@ -17,6 +17,7 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,84 +25,68 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
-      - name: Fetch Ikteach WiFi Drivers
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ikteach/ginkgo_Kernel.git ikteach-kernel
-          cd ikteach-kernel
-          git sparse-checkout set \
-            drivers/staging/qcacld-3.0 \
-            drivers/staging/qca-wifi-host-cmn
-          cd ..
-      - name: Replace WiFi Driver Directories
-        run: |
-          rm -rf drivers/staging/qcacld-3.0
-          rm -rf drivers/staging/qca-wifi-host-cmn
-          cp -a ikteach-kernel/drivers/staging/qcacld-3.0 drivers/staging/
-          cp -a ikteach-kernel/drivers/staging/qca-wifi-host-cmn drivers/staging/
-          echo "✅ WiFi drivers replaced with ikteach versions."
-          ls -lh drivers/staging/qcacld-3.0/ | head -3
-          ls -lh drivers/staging/qca-wifi-host-cmn/ | head -3
-      # ---------- Patch kompatibilitas kernel 4.14 ----------
-      - name: Patch ktime_get_boot_ns (compat 4.14)
-        run: |
-          echo "🔧 Mengganti ktime_get_boot_ns() → ktime_get_boottime_ns()"
-          FILES=$(grep -rl "ktime_get_boot_ns" \
-            drivers/staging/qcacld-3.0 \
-            drivers/staging/qca-wifi-host-cmn 2>/dev/null || true)
-          if [ -z "$FILES" ]; then
-            echo "✅ Tidak ada file yang perlu dipatch."
-            exit 0
-          fi
-          echo "📄 File yang akan dipatch:"
-          echo "$FILES"
-          for f in $FILES; do
-            # [^_] memastikan bpf_ktime_get_boot_ns tidak ikut terubah
-            sed -i 's/\([^_]\)ktime_get_boot_ns/\1ktime_get_boottime_ns/g' "$f"
-            echo "   ✅ $f"
-          done
-          echo "🔍 Verifikasi:"
-          grep -rn "ktime_get_boottime_ns" \
-            drivers/staging/qcacld-3.0 \
-            drivers/staging/qca-wifi-host-cmn | head -10 || true
       # ---------- Dependencies ----------
       - name: Setup Dependencies
         run: |
+          sudo apt-get update
           sudo apt-get install -y \
-          git make bc bison flex libssl-dev libelf-dev \
-          libncurses-dev python3 zip curl ccache \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang llvm lld
-      - name: Fix Script Permissions
-        run: |
-          chmod +x build/ckbuild.sh
-          chmod +x build/scripts/*.sh
-          chmod +x build/lib/*.sh 2>/dev/null || true
-      # ---------- Build ----------
-      - name: Build Kernel (XXKSU + NetHunter)
-        env:
-          LOG_UPLOAD: 0
-        run: |
-          export WP="$(realpath "$PWD/..")"
-          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
-          set -o pipefail
-          bash build/ckbuild.sh ginkgo x 2>&1 | tee build.log
-      # ---------- Artifacts ----------
-      - name: Upload Kernel Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
-          path: build/Floppy_*.zip
-          if-no-files-found: error
-          overwrite: true
+            git make bc bison flex libssl-dev libelf-dev \
+            libncurses-dev python3 zip unzip curl wget \
+            ccache patch rsync \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            clang llvm lld
 
-      - name: Upload Build Log (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
-          if-no-files-found: warn
-          overwrite: true
+      # ---------- Download Clang 23 hardcoded ----------
+      - name: Download AOSP Clang r614150 (Clang 23.0.1)
+        run: |
+          CLANG_DIR="/home/runner/aosp-clang"
+          mkdir -p "$CLANG_DIR"
+
+          URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/28337064939c0b4bb5804cddf35fb03d860edcf6/clang-r614150.tar.gz"
+
+          echo "📥 Downloading: $URL"
+          if ! curl -fLSsS --retry 3 --retry-delay 5 -o /tmp/clang.tar.gz "$URL"; then
+            echo "❌ Download failed"; exit 1
+          fi
+
+          echo "--- file type ---"
+          file /tmp/clang.tar.gz
+          ls -lh /tmp/clang.tar.gz
+
+          if ! tar -xf /tmp/clang.tar.gz -C "$CLANG_DIR"; then
+            echo "❌ Extract failed"; exit 1
+          fi
+          rm -f /tmp/clang.tar.gz
+
+          # Placeholder elfedit
+          touch "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
+          touch "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
+          chmod +x "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
+          chmod +x "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
+
+          echo "--- verifikasi clang ---"
+          "$CLANG_DIR/bin/clang" --version | head -1
+          test -f "$CLANG_DIR/bin/clang" || { echo "❌ clang binary nggak ada"; exit 1; }
+          echo "✅ Clang siap"
+
+      # ---------- Apply patch NetHunter ----------
+      - name: Apply packet_inject.patch
+        run: |
+          PATCH_FILE="patch/packet_inject.patch"
+          applied=0
+
+          if git apply --3way --whitespace=nowarn "$PATCH_FILE"; then
+            echo "✅ Applied via git apply --3way"
+            applied=1
+          else
+            echo "⚠️ --3way failed, rolling back"
+            git checkout -- . 2>/dev/null || true
+            git clean -fd drivers/staging/qcacld-3.0 \
+                          drivers/staging/qca-wifi-host-cmn 2>/dev/null || true
+          fi
+
+          if [ "$applied" = "0" ]; then
+            echo "⚠️ fallback ke patch -p1 --fuzz=3"
+            patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch \
+              < "$PATCH_FILE" || true
+          
