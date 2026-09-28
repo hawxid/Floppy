@@ -19,15 +19,19 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     steps:
-      - name: Checkout
+      - name: Checkout (ringan)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 1
+          filter: blob:none
+          submodules: false
 
+      - name: Optimasi git
+        run: |
+          git config --global protocol.version 2
+          git config --global core.compression 0
 
-      # ---------- Apply patch NetHunter ----------
-      - name: Apply packet_inject.patch
+      - name: Apply patch
         run: |
           git apply --check patch/test.patch
-          
+          git apply patch/test.patch
