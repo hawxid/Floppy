@@ -1,4 +1,4 @@
-name: Build FloppyKernel
+name: Build
 
 on:
   workflow_dispatch:
@@ -30,132 +30,22 @@ jobs:
 
     env:
       LOG_UPLOAD: "0"
+      # Path absolut bersih (tanpa '..') → kompatibel dengan actions/cache
       WP: /home/runner
+      # Clang 23.0.1 (r614150) — sesuai official FloppyKernel
       CLANG_VER: clang-r614150
       CLANG_COMMIT: 131f4e02e5889bfd7611eb0f3aad048efa7aed81
       CLANG_BASE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive
 
     steps:
-      - name: Checkout FloppyKernel
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 1
 
       # ============================================================
-      # BARU: Ganti qcacld-3.0 & qca-wifi-host-cmn dengan versi LineageOS
-      # ============================================================
-      - name: Checkout LineageOS sm6125 WiFi drivers
-        uses: actions/checkout@v4
-        with:
-          repository: LineageOS/android_kernel_xiaomi_sm6125
-          ref: lineage-23.2
-          path: lineage-wifi
-          fetch-depth: 1
-          sparse-checkout: |
-            drivers/staging/qcacld-3.0
-            drivers/staging/qca-wifi-host-cmn
-          sparse-checkout-cone-mode: false
-
-      - name: Replace WiFi driver folders
-        run: |
-          set -e
-          for d in qcacld-3.0 qca-wifi-host-cmn; do
-            SRC="lineage-wifi/drivers/staging/$d"
-            DST="drivers/staging/$d"
-
-            if [ ! -d "$SRC" ]; then
-              echo "❌ Sumber tidak ada: $SRC"
-              exit 1
-            fi
-
-            echo "🔄 Mengganti $DST dengan versi LineageOS sm6125..."
-            rm -rf "$DST"
-            cp -a "$SRC" "$DST"
-            echo "✅ $d diganti"
-          done
-
-          # Verifikasi struktur minimal
-          test -d drivers/staging/qcacld-3.0/core/hdd/src || { echo "❌ qcacld-3.0 tidak lengkap"; exit 1; }
-          test -d drivers/staging/qca-wifi-host-cmn/os_if/linux || { echo "❌ qca-wifi-host-cmn tidak lengkap"; exit 1; }
-          echo "✅ Driver WiFi dari LineageOS sm6125 siap"
-
-          # Bersihkan folder checkout sementara
-          rm -rf lineage-wifi
-
-      # ============================================================
-      # Patch NetHunter (setelah driver diganti)
-      # ============================================================
-      - name: Apply packet_inject.patch
-        run: |
-          PATCH_FILE="patch/packet_inject.patch"
-          applied=0
-
-          if git apply --3way --whitespace=nowarn "$PATCH_FILE"; then
-            echo "✅ Applied via git apply --3way"
-            applied=1
-          else
-            echo "⚠️ --3way failed, rolling back"
-            git checkout -- . 2>/dev/null || true
-            git clean -fd drivers/staging/qcacld-3.0 \
-                          drivers/staging/qca-wifi-host-cmn 2>/dev/null || true
-          fi
-
-          if [ "$applied" = "0" ]; then
-            echo "⚠️ fallback ke patch -p1 --fuzz=3"
-            patch -p1 -N --forward --fuzz=3 --no-backup-if-mismatch \
-              < "$PATCH_FILE" || true
-          fi
-
-          echo "--- .rej ---"
-          find . -name '*.rej' -print || true
-          find . -name '*.rej' -delete
-
-      - name: Fix header include paths
-        run: |
-          QCA="drivers/staging/qcacld-3.0"
-          ROOT_INC="$QCA/inc"
-          HDD_INC="$QCA/core/hdd/inc"
-          WMA_INC="$QCA/core/wma/inc"
-
-          for f in wlan_hdd_frame_inject.h \
-                   wlan_hdd_frame_validate.h \
-                   wlan_hdd_inject_security.h \
-                   wlan_hdd_frame_inject_debug.h; do
-            if [ -f "$HDD_INC/$f" ]; then
-              cp -f "$HDD_INC/$f" "$ROOT_INC/$f"
-              echo "✅ hdd→inc/: $f"
-            fi
-          done
-
-          if [ -f "$WMA_INC/wma_frame_inject.h" ]; then
-            cp -f "$WMA_INC/wma_frame_inject.h" "$ROOT_INC/"
-            cp -f "$WMA_INC/wma_frame_inject.h" "$HDD_INC/"
-            echo "✅ wma→inc/ + hdd/inc/: wma_frame_inject.h"
-          fi
-
-          test -f "$ROOT_INC/wma_frame_inject.h" \
-            || { echo "❌ wma_frame_inject.h nggak ke-copy"; exit 1; }
-          test -f "$ROOT_INC/wlan_hdd_frame_inject.h" \
-            || { echo "❌ wlan_hdd_frame_inject.h nggak ke-copy"; exit 1; }
-          echo "✅ Semua header ke-copy"
-
-      - name: Verify Injection
-        run: |
-          test -f drivers/staging/qcacld-3.0/core/wma/src/wma_frame_inject.c \
-            || { echo "❌ wma_frame_inject.c hilang"; exit 1; }
-          test -f drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_frame_inject.c \
-            || { echo "❌ wlan_hdd_frame_inject.c hilang"; exit 1; }
-          echo "✅ Patch sukses"
-
-      - name: Fix Script Permissions
-        run: |
-          chmod +x build/ckbuild.sh
-          chmod +x build/scripts/*.sh 2>/dev/null || true
-          chmod +x build/lib/*.sh 2>/dev/null || true
-
-      # ============================================================
-      # Cache toolchain & Clang
+      # Cache toolchains dir — supaya run berikutnya skip download total
       # ============================================================
       - name: Restore toolchain cache
         id: tc-cache
@@ -167,9 +57,14 @@ jobs:
             tc-aosp-${{ env.CLANG_VER }}-
             tc-aosp-
 
+      # ============================================================
+      # Pre-download AOSP Clang 23.0.1 (r614150)
+      # Kalau folder sudah ada (dari cache), skip total.
+      # ============================================================
       - name: Pre-populate AOSP Clang ${{ env.CLANG_VER }}
         run: |
           set -euo pipefail
+
           AC_DIR="$WP/toolchains/aospclang"
 
           if [[ -d "$AC_DIR" && -x "$AC_DIR/bin/clang" ]]; then
@@ -178,47 +73,37 @@ jobs:
             exit 0
           fi
 
-          echo "⬇️  Downloading AOSP Clang $CLANG_VER via GitHub mirror..."
-
-          # Mirror primary (bachnxuan) + fallback ke URL asli
-          MIRRORS=(
-            "https://github.com/bachnxuan/aosp_clang_mirror/releases/download/clang-r614150-16165221/clang-r614150.tar.gz"
-            "$CLANG_BASE/$CLANG_COMMIT/$CLANG_VER.tar.gz"
-          )
-
+          echo "⬇️  Downloading AOSP Clang $CLANG_VER (commit $CLANG_COMMIT)..."
+          mkdir -p "$AC_DIR"
           TMP_TAR="$(mktemp -d)/clang.tar.gz"
-          DOWNLOADED=0
 
-          for URL in "${MIRRORS[@]}"; do
-            echo "   Trying: $URL"
-            if curl -fLSs --retry 3 --retry-delay 5 --max-time 600 \
-                  -o "$TMP_TAR" "$URL"; then
-              SIZE=$(stat -c%s "$TMP_TAR" 2>/dev/null || echo 0)
-              if [ "$SIZE" -gt 104857600 ]; then
-                echo "✅ Download OK dari: $URL ($SIZE bytes)"
-                DOWNLOADED=1
-                break
-              fi
-              echo "⚠️ File terlalu kecil ($SIZE bytes), skip"
+          URL="$CLANG_BASE/$CLANG_COMMIT/$CLANG_VER.tar.gz"
+          echo "   URL: $URL"
+
+          for i in 1 2 3; do
+            if curl -fLSs --retry 3 --retry-delay 5 -o "$TMP_TAR" "$URL"; then
+              echo "✅ Download OK (attempt $i)"
+              break
             fi
+            echo "⚠️ Attempt $i gagal, retry..."
+            [[ "$i" == "3" ]] && { echo "❌ Download gagal total"; exit 1; }
+            sleep 10
           done
 
-          if [ "$DOWNLOADED" = "0" ]; then
-            echo "❌ Semua mirror gagal"
-            exit 1
-          fi
-
           echo "📦 Extracting..."
-          mkdir -p "$AC_DIR"
           tar -xf "$TMP_TAR" -C "$AC_DIR"
           rm -f "$TMP_TAR"
 
-          touch "$AC_DIR/bin/aarch64-linux-gnu-elfedit" "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
-          chmod +x "$AC_DIR/bin/"*elfedit
+          touch "$AC_DIR/bin/aarch64-linux-gnu-elfedit"
+          chmod +x "$AC_DIR/bin/aarch64-linux-gnu-elfedit"
+          touch "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
+          chmod +x "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
 
           test -x "$AC_DIR/bin/clang" || { echo "❌ bin/clang tidak ada"; exit 1; }
           echo "✅ Clang siap:"
           "$AC_DIR/bin/clang" --version | head -n1
+
+      # ---------- Cache ccache ----------
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -227,21 +112,71 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-
 
+      # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
+      - name: Fetch Ikteach WiFi Drivers
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/hawxid/ginkgo_Kernel.git ikteach-kernel
+          cd ikteach-kernel
+          git sparse-checkout set \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn
+          cd ..
+      - name: Replace WiFi Driver Directories
+        run: |
+          rm -rf drivers/staging/qcacld-3.0
+          rm -rf drivers/staging/qca-wifi-host-cmn
+          cp -a ikteach-kernel/drivers/staging/qcacld-3.0 drivers/staging/
+          cp -a ikteach-kernel/drivers/staging/qca-wifi-host-cmn drivers/staging/
+          echo "✅ WiFi drivers replaced with ikteach versions."
+          ls -lh drivers/staging/qcacld-3.0/ | head -3
+          ls -lh drivers/staging/qca-wifi-host-cmn/ | head -3
+      # ---------- Patch kompatibilitas kernel 4.14 ----------
+      - name: Patch ktime_get_boot_ns (compat 4.14)
+        run: |
+          echo "🔧 Mengganti ktime_get_boot_ns() → ktime_get_boottime_ns()"
+          FILES=$(grep -rl "ktime_get_boot_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "✅ Tidak ada file yang perlu dipatch."
+            exit 0
+          fi
+          echo "📄 File yang akan dipatch:"
+          echo "$FILES"
+          for f in $FILES; do
+            # [^_] memastikan bpf_ktime_get_boot_ns tidak ikut terubah
+            sed -i 's/\([^_]\)ktime_get_boot_ns/\1ktime_get_boottime_ns/g' "$f"
+            echo "   ✅ $f"
+          done
+          echo "🔍 Verifikasi:"
+          grep -rn "ktime_get_boottime_ns" \
+            drivers/staging/qcacld-3.0 \
+            drivers/staging/qca-wifi-host-cmn | head -10 || true
+
       # ============================================================
-      # Build
+      # Build — tc.sh akan skip download karena aospclang/ sudah ada
       # ============================================================
       - name: Build Kernel
         run: |
           set -o pipefail
+
           DEVICE="${{ inputs.target_device }}"
           FLAGS="${{ inputs.build_flags }}"
-          echo "🚀 Building FloppyKernel (driver WiFi: LineageOS sm6125)"
+
+          echo "🚀 Building FloppyKernel"
           echo "   Device : $DEVICE"
           echo "   Flags  : $FLAGS"
-          echo "   Clang  : $CLANG_VER"
+          echo "   WP     : $WP"
+          echo "   Cache  : ${{ steps.tc-cache.outputs.cache-hit == 'true' && 'HIT' || 'MISS' }}"
+          echo "   Clang  : $CLANG_VER (pre-populated)"
+
           # shellcheck disable=SC2086
           bash build/ckbuild.sh "$DEVICE" $FLAGS 2>&1 | tee build.log
 
+      # ============================================================
+      # Save cache — SELALU, biar run berikutnya HIT
+      # ============================================================
       - name: Save toolchain cache
         if: always() && steps.tc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -249,11 +184,12 @@ jobs:
           path: /home/runner/toolchains
           key: tc-aosp-${{ env.CLANG_VER }}-${{ runner.os }}
 
+      # ---------- Artifacts ----------
       - name: Upload Kernel Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: FloppyKernel-${{ inputs.target_device }}-los-wifi
+          name: FloppyKernel-${{ inputs.target_device }}-${{ inputs.build_flags }}
           path: build/Floppy_*.zip
           if-no-files-found: error
           overwrite: true
