@@ -167,7 +167,7 @@ jobs:
             tc-aosp-${{ env.CLANG_VER }}-
             tc-aosp-
 
-            - name: Pre-populate AOSP Clang ${{ env.CLANG_VER }}
+      - name: Pre-populate AOSP Clang ${{ env.CLANG_VER }}
         run: |
           set -euo pipefail
           AC_DIR="$WP/toolchains/aospclang"
