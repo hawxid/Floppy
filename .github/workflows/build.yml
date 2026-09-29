@@ -149,7 +149,7 @@ jobs:
           echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
           echo "   Toolchain: AOSP Clang 23.0.1 (custom)"
           set -o pipefail
-          bash build/ckbuild.sh mitrinket x 2>&1 | tee build.log
+          bash build/ckbuild.sh mitrinket x c 2>&1 | tee build.log
 
       # ---------- Artifacts ----------
       - name: Upload Kernel Artifact
