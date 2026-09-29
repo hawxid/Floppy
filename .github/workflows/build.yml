@@ -28,9 +28,14 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
 
-    # Env global — dibaca oleh ckbuild.sh / tc.sh / build.sh
     env:
       LOG_UPLOAD: "0"
+      # tc.sh baca $WP → taruh toolchains di luar repo biar gampang di-cache
+      WP: ${{ github.workspace }}/..
+      # Clang 23.0.1 (r614150) — sesuai official FloppyKernel
+      CLANG_VER: clang-r614150
+      CLANG_COMMIT: 131f4e02e5889bfd7611eb0f3aad048efa7aed81
+      CLANG_BASE: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive
 
     steps:
       - name: Checkout
@@ -39,7 +44,73 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # ---------- Cache ccache (opsional, mempercepat build berikutnya) ----------
+      # ============================================================
+      # Cache toolchains dir — supaya run berikutnya skip download total
+      # ============================================================
+      - name: Restore toolchain cache
+        id: tc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/../toolchains
+          key: tc-aosp-${{ env.CLANG_VER }}-${{ runner.os }}
+          restore-keys: |
+            tc-aosp-${{ env.CLANG_VER }}-
+            tc-aosp-
+
+      # ============================================================
+      # Pre-download AOSP Clang 23.0.1 (r614150) — FIX UTAMA
+      #
+      # Kalau folder $WP/toolchains/aospclang/ sudah ada, tc.sh
+      # akan skip download sepenuhnya (dia cek `[[ ! -d "$dir" ]]`).
+      # Jadi kita isi dulu folder itu sebelum ckbuild.sh jalan.
+      # ============================================================
+      - name: Pre-populate AOSP Clang ${{ env.CLANG_VER }}
+        run: |
+          set -euo pipefail
+
+          AC_DIR="$WP/toolchains/aospclang"
+
+          if [[ -d "$AC_DIR" && -x "$AC_DIR/bin/clang" ]]; then
+            echo "✅ Clang sudah ada di cache: $AC_DIR"
+            "$AC_DIR/bin/clang" --version | head -n1
+            exit 0
+          fi
+
+          echo "⬇️  Downloading AOSP Clang $CLANG_VER (commit $CLANG_COMMIT)..."
+          mkdir -p "$AC_DIR"
+          TMP_TAR="$(mktemp -d)/clang.tar.gz"
+
+          # URL pinned ke commit hash — immutable, gak akan 404 walau branch rename
+          URL="$CLANG_BASE/$CLANG_COMMIT/$CLANG_VER.tar.gz"
+          echo "   URL: $URL"
+
+          # Retry 3× — jaga-jaga googlesource lagi lambat
+          for i in 1 2 3; do
+            if curl -fLSs --retry 3 --retry-delay 5 -o "$TMP_TAR" "$URL"; then
+              echo "✅ Download OK (attempt $i)"
+              break
+            fi
+            echo "⚠️ Attempt $i gagal, retry..."
+            [[ "$i" == "3" ]] && { echo "❌ Download gagal total"; exit 1; }
+            sleep 10
+          done
+
+          echo "📦 Extracting..."
+          tar -xf "$TMP_TAR" -C "$AC_DIR"
+          rm -f "$TMP_TAR"
+
+          # Patch yang sama seperti tc.sh — biar konsisten
+          touch "$AC_DIR/bin/aarch64-linux-gnu-elfedit"
+          chmod +x "$AC_DIR/bin/aarch64-linux-gnu-elfedit"
+          touch "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
+          chmod +x "$AC_DIR/bin/arm-linux-gnueabi-elfedit"
+
+          # Verifikasi
+          test -x "$AC_DIR/bin/clang" || { echo "❌ bin/clang tidak ada"; exit 1; }
+          echo "✅ Clang siap:"
+          "$AC_DIR/bin/clang" --version | head -n1
+
+      # ---------- Cache ccache ----------
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -116,7 +187,10 @@ jobs:
           chmod +x build/ckbuild.sh
           chmod +x build/scripts/*.sh 2>/dev/null || true
           chmod +x build/lib/*.sh 2>/dev/null || true
-      #-----------------&build----------
+
+      # ============================================================
+      # Build — tc.sh akan skip download karena aospclang/ sudah ada
+      # ============================================================
       - name: Build Kernel
         run: |
           set -o pipefail
@@ -127,10 +201,22 @@ jobs:
           echo "🚀 Building FloppyKernel"
           echo "   Device : $DEVICE"
           echo "   Flags  : $FLAGS"
-          echo "   (deps + toolchain di-handle oleh ckbuild.sh)"
+          echo "   WP     : $WP"
+          echo "   Cache  : ${{ steps.tc-cache.outputs.cache-hit == 'true' && 'HIT' || 'MISS' }}"
+          echo "   Clang  : $CLANG_VER (pre-populated)"
 
           # shellcheck disable=SC2086
           bash build/ckbuild.sh "$DEVICE" $FLAGS 2>&1 | tee build.log
+
+      # ============================================================
+      # Save cache — SELALU, biar run berikutnya HIT
+      # ============================================================
+      - name: Save toolchain cache
+        if: always() && steps.tc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/../toolchains
+          key: tc-aosp-${{ env.CLANG_VER }}-${{ runner.os }}
 
       # ---------- Artifacts ----------
       - name: Upload Kernel Artifact
