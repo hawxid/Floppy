@@ -158,6 +158,35 @@ jobs:
           chmod +x build/ckbuild.sh
           chmod +x build/scripts/*.sh
           chmod +x build/lib/*.sh 2>/dev/null || true
+      - name: Fix Clang 23 enum-cast errors
+        run: |
+          echo "🔧 Fix Clang 23 -Wimplicit-enum-enum-cast..."
+
+          # 1. Fix file yang sudah error
+          F="drivers/staging/qca-wifi-host-cmn/hif/src/ce/ce_main.c"
+          if [ -f "$F" ]; then
+            sed -i 's/return A_ERROR;/return (QDF_STATUS)A_ERROR;/g' "$F"
+            echo "✅ $F dipatch"
+          fi
+
+          # 2. Matiin warning di Makefile root kernel (global)
+          if ! grep -q "Wno-implicit-enum-enum-cast" Makefile; then
+            # Sisipkan setelah baris KBUILD_CFLAGS pertama
+            sed -i '/^KBUILD_CFLAGS +=/i KBUILD_CFLAGS += -Wno-implicit-enum-enum-cast' Makefile
+            echo "✅ Flag global ditambah ke Makefile"
+          fi
+
+          # 3. Tambah juga ke Kbuild qcacld + qca-wifi-host-cmn
+          for d in qcacld-3.0 qca-wifi-host-cmn; do
+            K="drivers/staging/$d/Kbuild"
+            if [ -f "$K" ] && ! grep -q "Wno-implicit-enum-enum-cast" "$K"; then
+              echo "ccflags-y += -Wno-implicit-enum-enum-cast" >> "$K"
+              echo "✅ Flag ditambah ke $K"
+            fi
+          done
+
+          # Verifikasi
+          grep -c "Wno-implicit-enum-enum-cast" Makefile
 
       # ---------- Build ----------
       - name: Build Kernel (XXKSU + NetHunter)
