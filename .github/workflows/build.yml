@@ -2,6 +2,15 @@ name: Build FloppyKernel
 
 on:
   workflow_dispatch:
+    inputs:
+      target_device:
+        description: 'Device (ginkgo | laurel_sprout | mitrinket)'
+        required: false
+        default: 'mitrinket'
+      build_flags:
+        description: 'ckbuild flags (contoh: "x c" = XXKSU + clean)'
+        required: false
+        default: 'x c'
 
 permissions:
   contents: read
@@ -18,6 +27,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
+
+    # Env global — dibaca oleh ckbuild.sh / tc.sh / build.sh
+    env:
+      LOG_UPLOAD: "0"
+      CLANG_TYPE: custom
+      CUST_DIR: /home/runner/aosp-clang
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,49 +41,14 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # ---------- Dependencies ----------
-      - name: Setup Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git make bc bison flex libssl-dev libelf-dev \
-            libncurses-dev python3 zip unzip curl wget \
-            ccache patch rsync \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            clang llvm lld
-
-      # ---------- Download Clang 23 hardcoded ----------
-      - name: Download AOSP Clang r614150 (Clang 23.0.1)
-        run: |
-          CLANG_DIR="/home/runner/aosp-clang"
-          mkdir -p "$CLANG_DIR"
-
-          URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/28337064939c0b4bb5804cddf35fb03d860edcf6/clang-r614150.tar.gz"
-
-          echo "📥 Downloading: $URL"
-          if ! curl -fLSsS --retry 3 --retry-delay 5 -o /tmp/clang.tar.gz "$URL"; then
-            echo "❌ Download failed"; exit 1
-          fi
-
-          echo "--- file type ---"
-          file /tmp/clang.tar.gz
-          ls -lh /tmp/clang.tar.gz
-
-          if ! tar -xf /tmp/clang.tar.gz -C "$CLANG_DIR"; then
-            echo "❌ Extract failed"; exit 1
-          fi
-          rm -f /tmp/clang.tar.gz
-
-          # Placeholder elfedit
-          touch "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
-          touch "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
-          chmod +x "$CLANG_DIR/bin/aarch64-linux-gnu-elfedit"
-          chmod +x "$CLANG_DIR/bin/arm-linux-gnueabi-elfedit"
-
-          echo "--- verifikasi clang ---"
-          "$CLANG_DIR/bin/clang" --version | head -1
-          test -f "$CLANG_DIR/bin/clang" || { echo "❌ clang binary nggak ada"; exit 1; }
-          echo "✅ Clang siap"
+      # ---------- Cache ccache (opsional, mempercepat build berikutnya) ----------
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
 
       # ---------- Apply patch NetHunter ----------
       - name: Apply packet_inject.patch
@@ -135,28 +116,35 @@ jobs:
       - name: Fix Script Permissions
         run: |
           chmod +x build/ckbuild.sh
-          chmod +x build/scripts/*.sh
+          chmod +x build/scripts/*.sh 2>/dev/null || true
           chmod +x build/lib/*.sh 2>/dev/null || true
 
-      # ---------- Build pakai Clang custom ----------
-      - name: Build Kernel (XXKSU + NetHunter)
-        env:
-          LOG_UPLOAD: 0
-          CLANG_TYPE: custom
-          CUST_DIR: /home/runner/aosp-clang
+      # ============================================================
+      # Single build step
+      # ckbuild.sh sudah source deps.sh + tc.sh + build/post/images/upload.sh
+      # jadi TIDAK perlu step setup deps & toolchain terpisah.
+      # ============================================================
+      - name: Build Kernel
         run: |
-          export WP="$(realpath "$PWD/..")"
-          echo "🚀 Building FloppyKernel XXKSU + NetHunter for Ginkgo..."
-          echo "   Toolchain: AOSP Clang 23.0.1 (custom)"
           set -o pipefail
-          bash build/ckbuild.sh mitrinket x c 2>&1 | tee build.log
+
+          DEVICE="${{ inputs.target_device }}"
+          FLAGS="${{ inputs.build_flags }}"
+
+          echo "🚀 Building FloppyKernel"
+          echo "   Device : $DEVICE"
+          echo "   Flags  : $FLAGS"
+          echo "   (deps + toolchain di-handle oleh ckbuild.sh)"
+
+          # shellcheck disable=SC2086
+          bash build/ckbuild.sh "$DEVICE" $FLAGS 2>&1 | tee build.log
 
       # ---------- Artifacts ----------
       - name: Upload Kernel Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: FloppyKernel-XXKSU-NetHunter-Ginkgo
+          name: FloppyKernel-${{ inputs.target_device }}-${{ inputs.build_flags }}
           path: build/Floppy_*.zip
           if-no-files-found: error
           overwrite: true
