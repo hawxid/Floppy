@@ -31,8 +31,6 @@ jobs:
     # Env global — dibaca oleh ckbuild.sh / tc.sh / build.sh
     env:
       LOG_UPLOAD: "0"
-      CLANG_TYPE: custom
-      CUST_DIR: /home/runner/aosp-clang
 
     steps:
       - name: Checkout
@@ -118,12 +116,7 @@ jobs:
           chmod +x build/ckbuild.sh
           chmod +x build/scripts/*.sh 2>/dev/null || true
           chmod +x build/lib/*.sh 2>/dev/null || true
-
-      # ============================================================
-      # Single build step
-      # ckbuild.sh sudah source deps.sh + tc.sh + build/post/images/upload.sh
-      # jadi TIDAK perlu step setup deps & toolchain terpisah.
-      # ============================================================
+      #-----------------&build----------
       - name: Build Kernel
         run: |
           set -o pipefail
