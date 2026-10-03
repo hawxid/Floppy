@@ -100,26 +100,27 @@ jobs:
           echo "✅ Clang siap:"
           "$AC_DIR/bin/clang" --version | head -n1
 
-      # ---------- Ambil driver dari ikteach/ginkgo_Kernel ----------
-      - name: Fetch Ikteach WiFi Drivers
+      # ---------- Apply patch injeksi minimal (pengganti angkut 1 direktori) ----------
+      # Patch: patches/floppy-inject-minimal.patch (harus di-commit ke repo)
+      # Isi: subsistem frame injection + hook TX + fix stabilitas vdev/mode-switch
+      # Flag CONFIG_FEATURE_FRAME_INJECTION_SUPPORT := y ikut di
+      # drivers/staging/qcacld-3.0/configs/default_defconfig (di-include Kbuild),
+      # jadi tidak perlu ubah arch defconfig.
+      - name: Apply frame-injection patch
         run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ikteach/ginkgo_Kernel.git ikteach-kernel
-          cd ikteach-kernel
-          git sparse-checkout set \
-            drivers/staging/qcacld-3.0 \
-            drivers/staging/qca-wifi-host-cmn
-          cd ..
-
-      - name: Replace WiFi Driver Directories
-        run: |
-          rm -rf drivers/staging/qcacld-3.0
-          rm -rf drivers/staging/qca-wifi-host-cmn
-          cp -a ikteach-kernel/drivers/staging/qcacld-3.0 drivers/staging/
-          cp -a ikteach-kernel/drivers/staging/qca-wifi-host-cmn drivers/staging/
-          echo "✅ WiFi drivers replaced with ikteach versions."
-          ls -lh drivers/staging/qcacld-3.0/ | head -3
-          ls -lh drivers/staging/qca-wifi-host-cmn/ | head -3
+          set -euo pipefail
+          PATCH="patches/floppy-inject-minimal.patch"
+          if [[ ! -f "$PATCH" ]]; then
+            echo "❌ Patch tidak ditemukan: $PATCH"
+            echo "   Commit file patch ke repo dulu, lalu jalankan ulang workflow."
+            exit 1
+          fi
+          git apply --check "$PATCH"
+          git apply "$PATCH"
+          echo "✅ Patch injeksi teraplikasi."
+          grep -q "CONFIG_FEATURE_FRAME_INJECTION_SUPPORT := y" \
+            drivers/staging/qcacld-3.0/configs/default_defconfig \
+            && echo "✅ Flag injeksi aktif di driver defconfig"
 
       # ---------- Patch kompatibilitas kernel 4.14 ----------
       - name: Patch ktime_get_boot_ns (compat 4.14)
