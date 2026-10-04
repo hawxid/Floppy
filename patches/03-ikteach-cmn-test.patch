@@ -412,37 +412,6 @@ index 7a0303f..93b21ef 100644
  dbglog_parser_type_init(wmi_unified_t wmi_handle, int type);
  
  /** dbglog_int - Registers a WMI event handle for WMI_DBGMSG_EVENT
-diff --git a/drivers/staging/qca-wifi-host-cmn/wmi/inc/wmi_unified_priv.h b/drivers/staging/qca-wifi-host-cmn/wmi/inc/wmi_unified_priv.h
-index 03b94d7..10bf9a8 100644
---- a/drivers/staging/qca-wifi-host-cmn/wmi/inc/wmi_unified_priv.h
-+++ b/drivers/staging/qca-wifi-host-cmn/wmi/inc/wmi_unified_priv.h
-@@ -291,26 +291,6 @@ enum WMI_RECORD_TYPE {
- 	WMI_EVT = 2,
- };
- 
--#else
--
--#define wmi_alert(params...) ((void)0)
--#define wmi_err(params...) ((void)0)
--#define wmi_warn(params...) ((void)0)
--#define wmi_info(params...) ((void)0)
--#define wmi_debug(params...) ((void)0)
--
--#define wmi_nofl_alert(params...) ((void)0)
--#define wmi_nofl_err(params...) ((void)0)
--#define wmi_nofl_warn(params...) ((void)0)
--#define wmi_nofl_info(params...) ((void)0)
--#define wmi_nofl_debug(params...) ((void)0)
--
--#define wmi_alert_rl(params...) ((void)0)
--#define wmi_err_rl(params...) ((void)0)
--#define wmi_warn_rl(params...) ((void)0)
--#define wmi_info_rl(params...) ((void)0)
--#define wmi_debug_rl(params...) ((void)0)
--
- #endif /*WMI_INTERFACE_EVENT_LOGGING */
- 
- #ifdef WLAN_OPEN_SOURCE
 diff --git a/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c b/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c
 index 313eb76..0d99a0a 100644
 --- a/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c
