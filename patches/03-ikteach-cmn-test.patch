@@ -1,0 +1,432 @@
+diff --git a/drivers/staging/qca-wifi-host-cmn/dp/wifi3.0/dp_internal.h b/drivers/staging/qca-wifi-host-cmn/dp/wifi3.0/dp_internal.h
+index 69e821a..d8c8f96 100644
+--- a/drivers/staging/qca-wifi-host-cmn/dp/wifi3.0/dp_internal.h
++++ b/drivers/staging/qca-wifi-host-cmn/dp/wifi3.0/dp_internal.h
+@@ -19,6 +19,7 @@
+ #ifndef _DP_INTERNAL_H_
+ #define _DP_INTERNAL_H_
+ 
++#include <linux/version.h>
+ #include "dp_types.h"
+ 
+ #define RX_BUFFER_SIZE_PKTLOG_LITE 1024
+@@ -129,7 +130,11 @@ enum timer_yield_status {
+ };
+ 
+ #if DP_PRINT_ENABLE
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
++#include <linux/stdarg.h> /* va_list */
++#else
+ #include <stdarg.h>       /* va_list */
++#endif
+ #include <qdf_types.h> /* qdf_vprint */
+ #include <cdp_txrx_handle.h>
+ 
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/Kbuild b/drivers/staging/qca-wifi-host-cmn/qdf/Kbuild
+index b3edfd1..85f1b10 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/Kbuild
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/Kbuild
+@@ -12,8 +12,8 @@ HOST_QAL_SRC := $(DEPTH)/component_dev/qal
+ 
+ include $(obj)/$(DEPTH)/os/linux/Makefile-linux.common
+ 
+-INCS += -I $(srctree)/include/nbuf -I $(srctree)/include/net -I $(srctree)/include/os
+-INCS += -I $(srctree)/nbuf/linux -I $(srctree)/net/linux -I $(srctree)/os/linux
++INCS += -Iinclude/nbuf -Iinclude/net -Iinclude/os
++INCS += -Inbuf/linux -Inet/linux -Ios/linux
+ INCS += -I$(WLAN_TOP)/../../include
+ INCS += -I$(WLAN_TOP)/cmn_dev/qdf/inc
+ INCS += -I$(WLAN_TOP)/cmn_dev/qal/inc
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_trace.h b/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_trace.h
+index d98129b..af997f3 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_trace.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_trace.h
+@@ -26,8 +26,13 @@
+  */
+ 
+ /* Include Files */
++#include <linux/version.h>
+ #include  <qdf_types.h>         /* For QDF_MODULE_ID... */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
++#include  <linux/stdarg.h>      /* For va_list... */
++#else
+ #include  <stdarg.h>            /* For va_list... */
++#endif
+ #include  <qdf_status.h>
+ #include  <qdf_nbuf.h>
+ #include  <i_qdf_types.h>
+@@ -1165,7 +1170,6 @@ qdf_tso_seg_dbg_zero(struct qdf_tso_seg_elem_t *tsoseg)
+ 
+ #endif /* TSOSEG_DEBUG */
+ 
+-#ifdef QDF_ENABLE_TRACING
+ /**
+  * qdf_trace_hex_dump() - externally called hex dump function
+  * @module: Module identifier a member of the QDF_MODULE_ID enumeration that
+@@ -1199,12 +1203,6 @@ void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+  */
+ void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+ 			      void *data, int buf_len);
+-#else
+-static inline void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+-			void *data, int buf_len) {}
+-static inline void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+-			      void *data, int buf_len) {}
+-#endif
+ 
+ #define ERROR_CODE                      -1
+ #define QDF_MAX_NAME_SIZE               32
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_types.h b/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_types.h
+index 87cf756..25a8a00 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_types.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/inc/qdf_types.h
+@@ -28,8 +28,13 @@
+ #define qdf_must_check __qdf_must_check
+ 
+ /* Include Files */
++#include <linux/version.h>
+ #include <i_qdf_types.h>
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
++#include <linux/stdarg.h>
++#else
+ #include <stdarg.h>
++#endif
+ #ifdef TSOSEG_DEBUG
+ #include <qdf_atomic.h>
+ #endif
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_defer.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_defer.h
+index f809ada..e5f16a9 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_defer.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_defer.h
+@@ -189,7 +189,10 @@ static inline void __qdf_destroy_workqueue(__qdf_workqueue_t *wqueue)
+ static inline QDF_STATUS
+ __qdf_init_bh(struct tasklet_struct *bh, qdf_defer_fn_t func, void *arg)
+ {
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wcast-function-type"
+ 	tasklet_init(bh, (__qdf_bh_fn_t) func, (unsigned long)arg);
++#pragma GCC diagnostic pop
+ 	return QDF_STATUS_SUCCESS;
+ }
+ 
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_hrtimer.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_hrtimer.h
+index 0005503..c70194d 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_hrtimer.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_hrtimer.h
+@@ -143,8 +143,7 @@ static inline void  __qdf_hrtimer_init(__qdf_hrtimer_data_t *timer,
+ 	timer->ctx = ctx;
+ 
+ 	if (timer->ctx == QDF_CONTEXT_HARDWARE) {
+-		hrtimer_init(hrtimer, clock, hrt_mode);
+-		hrtimer->function = cback;
++		hrtimer_setup(hrtimer, cback, clock, hrt_mode);
+ 	} else if (timer->ctx == QDF_CONTEXT_TASKLET) {
+ 		QDF_BUG(0);
+ 	}
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_nbuf.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_nbuf.h
+index 5d6dc42..282ef8b 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_nbuf.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_nbuf.h
+@@ -28,6 +28,12 @@
+ #include <linux/netdevice.h>
+ #include <linux/etherdevice.h>
+ #include <linux/dma-mapping.h>
++#include <linux/kernel.h>
++
++/* Compatibility for newer kernels where FIELD_SIZEOF was removed */
++#ifndef FIELD_SIZEOF
++#define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
++#endif
+ #include <linux/version.h>
+ #include <asm/cacheflush.h>
+ #include <qdf_types.h>
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_str.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_str.h
+index 53378e1..c784919 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_str.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_str.h
+@@ -28,7 +28,7 @@
+ 
+ #define __qdf_is_space(c) isspace(c)
+ #define __qdf_str_cmp(left, right) strcmp(left, right)
+-#define __qdf_str_lcopy(dest, src, dest_size) strlcpy(dest, src, dest_size)
++#define __qdf_str_lcopy(dest, src, dest_size) strscpy(dest, src, dest_size)
+ #define __qdf_str_left_trim(str) skip_spaces(str)
+ #define __qdf_str_len(str) strlen(str)
+ #define __qdf_str_trim(str) strim(str)
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_timer.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_timer.h
+index 29c7782..1cf875a 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_timer.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_timer.h
+@@ -28,6 +28,22 @@
+ #include <linux/delay.h>
+ #include <linux/timer.h>
+ #include <linux/jiffies.h>
++#include <linux/kernel.h>
++
++/* Compatibility definitions for missing timer functions */
++#ifndef from_timer
++#define from_timer(var, callback_timer, timer_fieldname) \
++	container_of(callback_timer, typeof(*var), timer_fieldname)
++#endif
++
++/* Compatibility for renamed timer functions in newer kernels */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
++#define del_timer(timer) timer_delete(timer)
++#define del_timer_sync(timer) timer_delete_sync(timer)
++#endif
++#ifndef destroy_timer_on_stack
++#define destroy_timer_on_stack(timer) do { } while (0)
++#endif
+ #include "qdf_mc_timer.h"
+ #include <qdf_types.h>
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+@@ -146,7 +162,11 @@ static inline void __qdf_timer_free(struct __qdf_timer_t *timer)
+ {
+ 	struct timer_list *os_timer = &timer->os_timer;
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
++	timer_delete_sync(os_timer);
++#else
+ 	del_timer_sync(os_timer);
++#endif
+ 
+ 	if (object_is_on_stack(os_timer))
+ 		destroy_timer_on_stack(os_timer);
+@@ -154,7 +174,11 @@ static inline void __qdf_timer_free(struct __qdf_timer_t *timer)
+ 
+ static inline bool __qdf_timer_sync_cancel(struct __qdf_timer_t *timer)
+ {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
++	return timer_delete_sync(&timer->os_timer);
++#else
+ 	return del_timer_sync(&timer->os_timer);
++#endif
+ }
+ 
+ #endif /* _I_QDF_TIMER_H */
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_trace.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_trace.h
+index 1c5acf6..ea0b7fd 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_trace.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_trace.h
+@@ -58,7 +58,7 @@
+ 		} while (0)
+ #endif
+ 
+-#if 0
++#if defined(WLAN_DEBUG) || defined(DEBUG) || defined(QDF_TRACE_PRINT_ENABLE)
+ #define QDF_TRACE qdf_trace_msg
+ #define QDF_VTRACE qdf_vtrace_msg
+ #define QDF_TRACE_HEX_DUMP qdf_trace_hex_dump
+@@ -258,7 +258,7 @@ static inline void __qdf_trace_hexdump_dummy(QDF_MODULE_ID module,
+ #define QDF_TRACE_EXIT(params...) __qdf_trace_noop(params)
+ #endif
+ 
+-// #define QDF_ENABLE_TRACING
++#define QDF_ENABLE_TRACING
+ #define qdf_scnprintf scnprintf
+ 
+ #ifdef QDF_ENABLE_TRACING
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/qdf_lock.c b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/qdf_lock.c
+index 48deb01..48adc60 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/qdf_lock.c
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/qdf_lock.c
+@@ -241,19 +241,10 @@ qdf_export_symbol(qdf_mutex_release);
+  *
+  * Return: Pointer to the name if it is valid or a default string
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+-const char *qdf_wake_lock_name(qdf_wake_lock_t *lock)
+-{
+-	if (lock)
+-		return lock->lock.name;
+-	return "UNNAMED_WAKELOCK";
+-}
+-#else
+ const char *qdf_wake_lock_name(qdf_wake_lock_t *lock)
+ {
+ 	return "NO_WAKELOCK_SUPPORT";
+ }
+-#endif
+ qdf_export_symbol(qdf_wake_lock_name);
+ 
+ /**
+@@ -265,34 +256,10 @@ qdf_export_symbol(qdf_wake_lock_name);
+  * QDF status success: if wake lock is initialized
+  * QDF status failure: if wake lock was not initialized
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 110)) || \
+-	defined(WAKEUP_SOURCE_DEV)
+-QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name)
+-{
+-	qdf_mem_zero(lock, sizeof(*lock));
+-	lock->priv = wakeup_source_register(lock->lock.dev, name);
+-	if (!(lock->priv)) {
+-		QDF_BUG(0);
+-		return QDF_STATUS_E_FAILURE;
+-	}
+-
+-	lock->lock = *(lock->priv);
+-
+-	return QDF_STATUS_SUCCESS;
+-}
+-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+ QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name)
+ {
+-	wakeup_source_init(&(lock->lock), name);
+-	lock->priv = &(lock->lock);
+ 	return QDF_STATUS_SUCCESS;
+ }
+-#else
+-QDF_STATUS qdf_wake_lock_create(qdf_wake_lock_t *lock, const char *name)
+-{
+-	return QDF_STATUS_SUCCESS;
+-}
+-#endif
+ qdf_export_symbol(qdf_wake_lock_create);
+ 
+ /**
+@@ -304,22 +271,10 @@ qdf_export_symbol(qdf_wake_lock_create);
+  * QDF status success: if wake lock is acquired
+  * QDF status failure: if wake lock was not acquired
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+ QDF_STATUS qdf_wake_lock_acquire(qdf_wake_lock_t *lock, uint32_t reason)
+ {
+-	host_diag_log_wlock(reason, qdf_wake_lock_name(lock),
+-			    WIFI_POWER_EVENT_DEFAULT_WAKELOCK_TIMEOUT,
+-			    WIFI_POWER_EVENT_WAKELOCK_TAKEN);
+-	__pm_stay_awake(lock->priv);
+-
+ 	return QDF_STATUS_SUCCESS;
+ }
+-#else
+-QDF_STATUS qdf_wake_lock_acquire(qdf_wake_lock_t *lock, uint32_t reason)
+-{
+-	return QDF_STATUS_SUCCESS;
+-}
+-#endif
+ qdf_export_symbol(qdf_wake_lock_acquire);
+ 
+ /**
+@@ -331,27 +286,10 @@ qdf_export_symbol(qdf_wake_lock_acquire);
+  * QDF status success: if wake lock is acquired
+  * QDF status failure: if wake lock was not acquired
+  */
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
+ QDF_STATUS qdf_wake_lock_timeout_acquire(qdf_wake_lock_t *lock, uint32_t msec)
+ {
+-	pm_wakeup_ws_event(lock->priv, msec, true);
+ 	return QDF_STATUS_SUCCESS;
+ }
+-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
+-QDF_STATUS qdf_wake_lock_timeout_acquire(qdf_wake_lock_t *lock, uint32_t msec)
+-{
+-	/* Wakelock for Rx is frequent.
+-	 * It is reported only during active debug
+-	 */
+-	__pm_wakeup_event(&(lock->lock), msec);
+-	return QDF_STATUS_SUCCESS;
+-}
+-#else /* LINUX_VERSION_CODE */
+-QDF_STATUS qdf_wake_lock_timeout_acquire(qdf_wake_lock_t *lock, uint32_t msec)
+-{
+-	return QDF_STATUS_SUCCESS;
+-}
+-#endif /* LINUX_VERSION_CODE */
+ qdf_export_symbol(qdf_wake_lock_timeout_acquire);
+ 
+ /**
+@@ -363,22 +301,10 @@ qdf_export_symbol(qdf_wake_lock_timeout_acquire);
+  * QDF status success: if wake lock is acquired
+  * QDF status failure: if wake lock was not acquired
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+-QDF_STATUS qdf_wake_lock_release(qdf_wake_lock_t *lock, uint32_t reason)
+-{
+-	host_diag_log_wlock(reason, qdf_wake_lock_name(lock),
+-			    WIFI_POWER_EVENT_DEFAULT_WAKELOCK_TIMEOUT,
+-			    WIFI_POWER_EVENT_WAKELOCK_RELEASED);
+-	__pm_relax(lock->priv);
+-
+-	return QDF_STATUS_SUCCESS;
+-}
+-#else
+ QDF_STATUS qdf_wake_lock_release(qdf_wake_lock_t *lock, uint32_t reason)
+ {
+ 	return QDF_STATUS_SUCCESS;
+ }
+-#endif
+ qdf_export_symbol(qdf_wake_lock_release);
+ 
+ /**
+@@ -389,25 +315,10 @@ qdf_export_symbol(qdf_wake_lock_release);
+  * QDF status success: if wake lock is acquired
+  * QDF status failure: if wake lock was not acquired
+  */
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 110)) || \
+-	defined(WAKEUP_SOURCE_DEV)
+-QDF_STATUS qdf_wake_lock_destroy(qdf_wake_lock_t *lock)
+-{
+-	wakeup_source_unregister(lock->priv);
+-	return QDF_STATUS_SUCCESS;
+-}
+-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+ QDF_STATUS qdf_wake_lock_destroy(qdf_wake_lock_t *lock)
+ {
+-	wakeup_source_trash(&(lock->lock));
+ 	return QDF_STATUS_SUCCESS;
+ }
+-#else
+-QDF_STATUS qdf_wake_lock_destroy(qdf_wake_lock_t *lock)
+-{
+-	return QDF_STATUS_SUCCESS;
+-}
+-#endif
+ qdf_export_symbol(qdf_wake_lock_destroy);
+ 
+ /**
+diff --git a/drivers/staging/qca-wifi-host-cmn/utils/fwlog/dbglog_host.h b/drivers/staging/qca-wifi-host-cmn/utils/fwlog/dbglog_host.h
+index 7a0303f..93b21ef 100644
+--- a/drivers/staging/qca-wifi-host-cmn/utils/fwlog/dbglog_host.h
++++ b/drivers/staging/qca-wifi-host-cmn/utils/fwlog/dbglog_host.h
+@@ -72,8 +72,7 @@ extern "C" {
+ #ifdef FEATURE_FW_LOG_PARSING
+ /*
+  * set the dbglog parser type
+- */
+-int
++ */int
+ dbglog_parser_type_init(wmi_unified_t wmi_handle, int type);
+ 
+ /** dbglog_int - Registers a WMI event handle for WMI_DBGMSG_EVENT
+diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h
+index 7200c68..0c0e502 100644
+--- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h
++++ b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h
+@@ -287,9 +287,13 @@ static inline uint64_t __qdf_get_log_timestamp(void)
+  */
+ static inline uint64_t __qdf_get_log_timestamp(void)
+ {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
++	struct timespec64 ts;
++	ktime_get_ts64(&ts);
++#else
+ 	struct timespec ts;
+-
+ 	ktime_get_ts(&ts);
++#endif
+ 
+ 	return ((uint64_t) ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
+ }
+@@ -315,7 +319,11 @@ static inline uint64_t __qdf_get_bootbased_boottime_ns(void)
+ #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
+ static inline uint64_t __qdf_get_bootbased_boottime_ns(void)
+ {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
++	return ktime_get_boot_ns();
++#else
+ 	return ktime_get_boottime_ns();
++#endif
+ }
+ 
+ #else
