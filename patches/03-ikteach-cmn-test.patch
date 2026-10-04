@@ -412,19 +412,6 @@ index 7a0303f..93b21ef 100644
  dbglog_parser_type_init(wmi_unified_t wmi_handle, int type);
  
  /** dbglog_int - Registers a WMI event handle for WMI_DBGMSG_EVENT
-diff --git a/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c b/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c
-index 313eb76..0d99a0a 100644
---- a/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c
-+++ b/drivers/staging/qca-wifi-host-cmn/wmi/src/wmi_unified_sta_tlv.c
-@@ -1361,7 +1361,7 @@ static QDF_STATUS get_sar_limit_cmd_tlv(wmi_unified_t wmi_handle)
-  * Return: string conversion of sar 2 result, if match found;
-  *	   "Unknown response" otherwise.
-  */
--static __maybe_unused const char *wmi_sar2_result_string(uint32_t result)
-+static const char *wmi_sar2_result_string(uint32_t result)
- {
- 	switch (result) {
- 	CASE_RETURN_STRING(WMI_SAR2_SUCCESS);
 diff --git a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h b/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h
 index 7200c68..0c0e502 100644
 --- a/drivers/staging/qca-wifi-host-cmn/qdf/linux/src/i_qdf_time.h
