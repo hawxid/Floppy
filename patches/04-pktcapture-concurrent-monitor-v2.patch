@@ -1,0 +1,30 @@
+diff --git a/drivers/staging/qcacld-3.0/configs/default_defconfig b/drivers/staging/qcacld-3.0/configs/default_defconfig
+index d2e8bc0..e3f4a5b 100644
+--- a/drivers/staging/qcacld-3.0/configs/default_defconfig
++++ b/drivers/staging/qcacld-3.0/configs/default_defconfig
+@@ -1047,4 +1047,7 @@ CONFIG_FEATURE_GPIO_CFG := y
+ 
+ #Enable VDEV Response wakelock feature
+ CONFIG_FEATURE_VDEV_RSP_WAKELOCK := y
+ CONFIG_FEATURE_FRAME_INJECTION_SUPPORT := y
++
++#Enable WLAN packet capture support for concurrent STA + monitor VIF
++#Allows 'iw phy phy0 interface add wlan0mon type monitor' while wlan0 stays connected
++CONFIG_WLAN_FEATURE_PKT_CAPTURE := y
+diff --git a/drivers/staging/qcacld-3.0/core/cds/src/cds_api.c b/drivers/staging/qcacld-3.0/core/cds/src/cds_api.c
+--- a/drivers/staging/qcacld-3.0/core/cds/src/cds_api.c
++++ b/drivers/staging/qcacld-3.0/core/cds/src/cds_api.c
+@@ -3060,7 +3060,11 @@ bool cds_is_pktcapture_enabled(void)
+ 		cds_err("HDD context is NULL");
+ 		return false;
+ 	}
+ 
+-	return hdd_ctx->enable_pkt_capture_support;
++	/* Force-enable: upstream never assigns enable_pkt_capture_support,
++	 * so the pkt_capture concurrent-monitor path would stay dead.
++	 * We need it active for STA + monitor VIF support. */
++	hdd_ctx->enable_pkt_capture_support = true;
++	return true;
+ }
+ 
+ uint8_t cds_get_pktcapture_mode(void)
