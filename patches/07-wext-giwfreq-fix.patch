@@ -1,0 +1,103 @@
+From: Astro <astro@local>
+Date: Tue, 6 Oct 2026 15:30:00 +0700
+Subject: [PATCH] qcacld-3.0: Enable WEXT and add SIOCGIWFREQ handler for monitor mode
+
+Port of Loukious's hdd_wext_giwfreq from
+android_kernel_xiaomi_sm8150@18c57c6 ("wifi: Add packet injection
+support for monitor mode").
+
+Two parts:
+1. Enable CONFIG_WLAN_WEXT_SUPPORT_ENABLE in default_defconfig.
+   Without this, wlan_hdd_wext.c is not compiled at all and
+   hdd_register_wext() is a no-op, leaving dev->wireless_handlers
+   NULL ("no wireless extensions").
+
+2. Add SIOCGIWFREQ handler (hdd_wext_giwfreq). Tools like airodump-ng,
+   aireplay-ng and mdk3 read the current channel via the legacy WEXT
+   SIOCGIWFREQ ioctl. Without a handler registered, the driver's
+   we_handler_def (num_standard=0) prevents cfg80211's wext compat
+   layer from ever being reached, causing "channel -1".
+
+The handler reports adapter->mon_chan_freq (set by cfg80211
+set_monitor_channel), falling back to the station context's
+ch_info.freq.
+
+diff --git a/drivers/staging/qcacld-3.0/configs/default_defconfig b/drivers/staging/qcacld-3.0/configs/default_defconfig
+--- a/drivers/staging/qcacld-3.0/configs/default_defconfig
++++ b/drivers/staging/qcacld-3.0/configs/default_defconfig
+@@ -1047,3 +1047,6 @@ CONFIG_FEATURE_GPIO_CFG := y
+ 
+ #Enable VDEV Response wakelock feature
+ CONFIG_FEATURE_VDEV_RSP_WAKELOCK := y
+ CONFIG_FEATURE_FRAME_INJECTION_SUPPORT := y
++
++#Enable WEXT support for STA/AP/P2P interfaces (needed for airodump-ng channel readout)
++CONFIG_WLAN_WEXT_SUPPORT_ENABLE := y
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
+@@ -11018,12 +11018,62 @@
+ #endif /* WLAN_FEATURE_MOTION_DETECTION */
+ };
+ 
++/**
++ * hdd_wext_giwfreq() - SIOCGIWFREQ handler for monitor mode
++ * @dev: net_device
++ * @info: request info
++ * @freq: output frequency
++ * @extra: extra data (unused)
++ *
++ * Reports the current operating frequency so that tools like aireplay-ng
++ * and mdk3 can determine the channel.  Reads adapter->mon_chan_freq first
++ * (set by cfg80211 set_monitor_channel), falls back to ch_info.freq.
++ *
++ * Return: 0 on success, negative errno on failure.
++ */
++static int hdd_wext_giwfreq(struct net_device *dev,
++			    struct iw_request_info *info,
++			    struct iw_freq *freq, char *extra)
++{
++	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
++	struct hdd_station_ctx *sta_ctx;
++	uint32_t chan_freq;
++
++	if (!adapter)
++		return -EINVAL;
++
++	chan_freq = adapter->mon_chan_freq;
++
++	if (!chan_freq) {
++		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
++		if (sta_ctx)
++			chan_freq = sta_ctx->ch_info.freq;
++	}
++
++	if (!chan_freq)
++		return -EINVAL;
++
++	freq->m = chan_freq;
++	freq->e = 6;
++	return 0;
++}
++
++/*
++ * Standard wext handler table.  Only SIOCGIWFREQ is needed — tools like
++ * aireplay-ng use it to determine the current channel.  Without this, the
++ * driver's we_handler_def (num_standard=0) prevents cfg80211's wext compat
++ * layer from ever being reached, causing "channel -1".
++ */
++static const iw_handler we_standard[] = {
++	[IW_IOCTL_IDX(SIOCGIWFREQ)] = (iw_handler)hdd_wext_giwfreq,
++};
++
+ const struct iw_handler_def we_handler_def = {
+-	.num_standard = 0,
++	.num_standard = ARRAY_SIZE(we_standard),
+ 	.num_private = QDF_ARRAY_SIZE(we_private),
+ 	.num_private_args = QDF_ARRAY_SIZE(we_private_args),
+ 
+-	.standard = NULL,
++	.standard = we_standard,
+ 	.private = (iw_handler *) we_private,
+ 	.private_args = we_private_args,
+ 	.get_wireless_stats = NULL,
