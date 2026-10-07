@@ -1,0 +1,42 @@
+From: MrR0b0X
+Subject: qcacld: hdd: allow VIF creation while STA + monitor is up
+
+With FEATURE_FRAME_INJECTION_SUPPORT, wlan_mlme_is_sta_mon_conc_supported()
+is always true, so policy_mgr_is_sta_mon_concurrency() is true as soon as
+wlan0 and one monitor VIF exist. __wlan_hdd_add_virtual_intf() rejected
+every further request with -EINVAL at that point, before the requested
+type was even looked at.
+
+Drop that blanket check. Creating a VIF only allocates a netdev and an
+adapter, and the real limits are still applied downstream.
+
+Signed-off-by: Robin <hanya8493@gmail.com>
+---
+ drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
+@@ -726,9 +726,17 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
+ 	if (ret)
+ 		return ERR_PTR(ret);
+ 
+-	if (policy_mgr_is_sta_mon_concurrency(hdd_ctx->psoc))
+-		return ERR_PTR(-EINVAL);
+-
++	/*
++	 * Do not reject VIF creation just because a STA + monitor pair is
++	 * already up. Creating a VIF only allocates a netdev/adapter; the
++	 * per-type limits are still enforced where the resource is really
++	 * consumed: policy_mgr_check_mon_concurrency() for monitor VIFs,
++	 * hdd_open_adapter() (WLAN_MAX_VDEVS, STA vdev count), the vdev
++	 * sync pool, and the vdev create/start path (firmware).
++	 *
++	 * Packet-capture monitor is a different feature that owns the
++	 * STA + monitor pair, so keep rejecting while it is active.
++	 */
+ 	if (wlan_hdd_is_mon_concurrency())
+ 		return ERR_PTR(-EINVAL);
+ 
+-- 
