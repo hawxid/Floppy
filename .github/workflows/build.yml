@@ -6,7 +6,7 @@ on:
       target_device:
         description: 'Device (ginkgo | laurel_sprout | mitrinket)'
         required: false
-        default: 'mitrinket'
+        default: 'ginkgo'
       build_flags:
         description: 'ckbuild flags (contoh: "x c" = XXKSU + clean)'
         required: false
