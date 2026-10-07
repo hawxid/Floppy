@@ -1,27 +1,9 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
-@@ -11059,13 +11059,19 @@
- }
- 
- /*
-- * Standard wext handler table.  Only SIOCGIWFREQ is needed — tools like
-- * aireplay-ng use it to determine the current channel.  Without this, the
-- * driver's we_handler_def (num_standard=0) prevents cfg80211's wext compat
-- * layer from ever being reached, causing "channel -1".
-+ * Standard wext handler table.  SIOCGIWFREQ is needed so tools like
-+ * aireplay-ng can determine the current channel (without it, the
-+ * driver's we_handler_def (num_standard=0) prevents cfg80211's wext
-+ * compat layer from ever being reached, causing "channel -1").
-+ * SIOCSIWMODE/SIOCGIWMODE are handled by cfg80211's wext compat so
-+ * tools like airodump-ng can confirm (or request) monitor mode on
-+ * iw-created monitor interfaces; monitor->monitor is a no-op there,
-+ * so this never triggers the con_mode restart.
-  */
+@@ -11067,3 +11067,5 @@
  static const iw_handler we_standard[] = {
  	[IW_IOCTL_IDX(SIOCGIWFREQ)] = (iw_handler)hdd_wext_giwfreq,
 +	[IW_IOCTL_IDX(SIOCSIWMODE)] = (iw_handler)cfg80211_wext_siwmode,
 +	[IW_IOCTL_IDX(SIOCGIWMODE)] = (iw_handler)cfg80211_wext_giwmode,
  };
- 
- const struct iw_handler_def we_handler_def = {
