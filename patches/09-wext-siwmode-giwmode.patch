@@ -1,9 +1,90 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
-@@ -11067,3 +11067,5 @@
+@@ -11064,8 +11064,86 @@
+  * driver's we_handler_def (num_standard=0) prevents cfg80211's wext compat
+  * layer from ever being reached, causing "channel -1".
+  */
++/**
++ * hdd_wext_siwmode() - SIOCSIWMODE handler
++ * @dev: network device
++ * @info: ioctl request info (unused)
++ * @wrqu: ioctl data, wrqu->mode carries the requested mode
++ * @extra: unused
++ *
++ * airodump-ng unconditionally issues SIOCSIWMODE(IW_MODE_MONITOR) on the
++ * interface it is told to use.  When that interface was already created
++ * as monitor type (e.g. "iw phy phy0 interface add wlan0mon type
++ * monitor"), there is nothing to change: report success without entering
++ * the driver mode-switch path, so no global con_mode restart is
++ * triggered.  Any other transition is rejected, exactly as if no
++ * handler were installed.
++ *
++ * The generic cfg80211_wext_siwmode() cannot be used here because this
++ * kernel is built with CONFIG_CFG80211_WEXT disabled, so the cfg80211
++ * WEXT compat layer is not compiled in.
++ *
++ * Return: 0 on success, -EOPNOTSUPP otherwise.
++ */
++static int hdd_wext_siwmode(struct net_device *dev,
++			    struct iw_request_info *info,
++			    union iwreq_data *wrqu, char *extra)
++{
++	struct wireless_dev *wdev = dev->ieee80211_ptr;
++
++	if (wdev && wrqu->mode == IW_MODE_MONITOR &&
++	    wdev->iftype == NL80211_IFTYPE_MONITOR)
++		return 0;
++
++	return -EOPNOTSUPP;
++}
++
++/**
++ * hdd_wext_giwmode() - SIOCGIWMODE handler
++ * @dev: network device
++ * @info: ioctl request info (unused)
++ * @wrqu: ioctl data, wrqu->mode reports the current mode
++ * @extra: unused
++ *
++ * Lets tools verify the interface mode (e.g. confirm monitor mode is
++ * active) without depending on the cfg80211 WEXT compat layer, which is
++ * not compiled in this kernel (CONFIG_CFG80211_WEXT is not set).
++ *
++ * Return: 0 on success, -EOPNOTSUPP if the type has no WEXT equivalent.
++ */
++static int hdd_wext_giwmode(struct net_device *dev,
++			    struct iw_request_info *info,
++			    union iwreq_data *wrqu, char *extra)
++{
++	struct wireless_dev *wdev = dev->ieee80211_ptr;
++
++	if (!wdev)
++		return -EOPNOTSUPP;
++
++	switch (wdev->iftype) {
++	case NL80211_IFTYPE_MONITOR:
++		wrqu->mode = IW_MODE_MONITOR;
++		break;
++	case NL80211_IFTYPE_STATION:
++		wrqu->mode = IW_MODE_INFRA;
++		break;
++	case NL80211_IFTYPE_ADHOC:
++		wrqu->mode = IW_MODE_ADHOC;
++		break;
++	case NL80211_IFTYPE_AP:
++		wrqu->mode = IW_MODE_MASTER;
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++
++	return 0;
++}
++
  static const iw_handler we_standard[] = {
  	[IW_IOCTL_IDX(SIOCGIWFREQ)] = (iw_handler)hdd_wext_giwfreq,
-+	[IW_IOCTL_IDX(SIOCSIWMODE)] = (iw_handler)cfg80211_wext_siwmode,
-+	[IW_IOCTL_IDX(SIOCGIWMODE)] = (iw_handler)cfg80211_wext_giwmode,
++	[IW_IOCTL_IDX(SIOCSIWMODE)] = (iw_handler)hdd_wext_siwmode,
++	[IW_IOCTL_IDX(SIOCGIWMODE)] = (iw_handler)hdd_wext_giwmode,
  };
+ 
+ const struct iw_handler_def we_handler_def = {
