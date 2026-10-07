@@ -1,0 +1,25 @@
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
+index b47d4b072..56b7d6eab 100644
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
+@@ -677,6 +677,20 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
+ 	case QDF_P2P_CLIENT_MODE:
+ 	case QDF_STA_MODE:
+ 		break;
++	case QDF_MONITOR_MODE:
++		/*
++		 * Allow "iw phy phy0 interface add <name> type monitor" to
++		 * create a real monitor-mode adapter instead of silently
++		 * falling back to QDF_STA_MODE. hdd_open_adapter() with
++		 * QDF_MONITOR_MODE is the same path con_mode=4 uses to
++		 * bring up its monitor interface.
++		 *
++		 * NOTE (langkah awal): no concurrency management yet — the
++		 * STA-disconnect/restore and policy checks (SAP/P2P guards)
++		 * from the full STA+monitor port are not included here.
++		 * Test with STA idle first.
++		 */
++		break;
+ 	default:
+ 		mode = QDF_STA_MODE;
+ 		break;
