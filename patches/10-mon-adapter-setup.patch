@@ -1,0 +1,53 @@
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
+@@ -5024,6 +5024,31 @@
+ }
+ #endif
+ 
++#ifdef FEATURE_MONITOR_MODE_SUPPORT
++/**
++ * hdd_set_mon_adapter_ops() - net_device_ops for an iw-created monitor
++ * interface.
++ * @dev: Handle to struct net_device to be updated.
++ *
++ * An interface created via "iw ... interface add ... type monitor"
++ * (QDF_MONITOR_MODE adapter) needs the monitor net_device_ops
++ * (hdd_mon_open, which installs the monitor RX callback and enables
++ * monitor mode) even when the driver is not in global monitor mode
++ * (con_mode != 4).  Without this the interface silently gets the
++ * station ops and behaves like a broken Ethernet device.
++ *
++ * Return: None
++ */
++static void hdd_set_mon_adapter_ops(struct net_device *dev)
++{
++	dev->netdev_ops = &wlan_mon_drv_ops;
++}
++#else
++static void hdd_set_mon_adapter_ops(struct net_device *dev)
++{
++}
++#endif
++
+ /**
+  * hdd_alloc_station_adapter() - allocate the station hdd adapter
+  * @hdd_ctx: global hdd context
+@@ -5053,7 +5078,7 @@
+ 			      name_assign_type,
+ #endif
+ 			      ((cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE ||
+-			       wlan_hdd_is_session_type_monitor(session_type)) ?
++			       session_type == QDF_MONITOR_MODE) ?
+ 			       hdd_mon_mode_ether_setup : ether_setup),
+ 			      NUM_TX_QUEUES);
+ 
+@@ -5102,6 +5127,8 @@
+ 
+ 	if (wlan_hdd_is_session_type_monitor(session_type))
+ 		hdd_set_pktcapture_ops(adapter->dev);
++	else if (session_type == QDF_MONITOR_MODE)
++		hdd_set_mon_adapter_ops(adapter->dev);
+ 	else
+ 		hdd_set_station_ops(adapter->dev);
+ 
