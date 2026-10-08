@@ -26,3 +26,15 @@ diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/s
  	}
  
  	ret = hdd_set_mon_rx_cb(dev);
+@@ -2761,4 +2779,11 @@
+ 	if (!ret)
+ 		ret = hdd_enable_monitor_mode(dev);
+ 
++#ifdef FEATURE_FRAME_INJECTION_SUPPORT
++	/* Init injection_ctx for mission-mode VIF (patch 01 misses it) */
++	if (!ret && !adapter->injection_ctx)
++		if (QDF_IS_STATUS_ERROR(hdd_init_frame_injection(adapter)))
++			hdd_err("Failed to init injection for mon VIF");
++#endif
++
+ 	if (!ret) {
