@@ -1,0 +1,22 @@
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_tx_rx.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_tx_rx.c
+index 10053573b..40b34b56f 100644
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_tx_rx.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_tx_rx.c
+@@ -1513,6 +1513,7 @@ static QDF_STATUS hdd_mon_rx_packet_cbk(void *context, qdf_nbuf_t rxbuf)
+ 	struct sk_buff *skb;
+ 	struct sk_buff *skb_next;
+ 	unsigned int cpu_index;
++	static unsigned long mondbg_rx_cnt;
+ 
+ 	/* Sanity check on inputs */
+ 	if ((!context) || (!rxbuf)) {
+@@ -1521,6 +1522,9 @@ static QDF_STATUS hdd_mon_rx_packet_cbk(void *context, qdf_nbuf_t rxbuf)
+ 		return QDF_STATUS_E_FAILURE;
+ 	}
+ 
++	mondbg_rx_cnt++;
++	if ((mondbg_rx_cnt % 100) == 1)
++		pr_err("MONDBG: mon_rx pkt #%lu\n", mondbg_rx_cnt);
+ 	adapter = (struct hdd_adapter *)context;
+ 	if ((!adapter) || (WLAN_HDD_ADAPTER_MAGIC != adapter->magic)) {
+ 		QDF_TRACE(QDF_MODULE_ID_HDD_DATA, QDF_TRACE_LEVEL_ERROR,
