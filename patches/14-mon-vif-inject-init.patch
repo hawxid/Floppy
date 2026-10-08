@@ -1,7 +1,8 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
-@@ -2770,5 +2770,12 @@
+@@ -2769,5 +2769,13 @@
+ 	if (!ret)
  		ret = hdd_enable_monitor_mode(dev);
  
 +#ifdef FEATURE_FRAME_INJECTION_SUPPORT
@@ -11,6 +12,6 @@ diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/s
 +			hdd_err("Failed to init injection for mon VIF");
 +	}
 +#endif
- 
++
  	if (ret)
  		return ret;
