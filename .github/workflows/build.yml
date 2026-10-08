@@ -10,7 +10,7 @@ on:
       build_flags:
         description: 'ckbuild flags (contoh: "x c" = XXKSU + clean)'
         required: false
-        default: 'x c'
+        default: 'x'
 
 permissions:
   contents: read
