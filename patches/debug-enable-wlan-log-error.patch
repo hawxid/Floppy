@@ -1,0 +1,12 @@
+diff --git a/drivers/staging/qcacld-3.0/configs/default_defconfig b/drivers/staging/qcacld-3.0/configs/default_defconfig
+--- a/drivers/staging/qcacld-3.0/configs/default_defconfig
++++ b/drivers/staging/qcacld-3.0/configs/default_defconfig
+@@ -523,7 +523,7 @@
+
+ # Compile all log levels by default
+ CONFIG_WLAN_LOG_FATAL := n
+-CONFIG_WLAN_LOG_ERROR := n
++CONFIG_WLAN_LOG_ERROR := y
+ CONFIG_WLAN_LOG_WARN := n
+ CONFIG_WLAN_LOG_INFO := n
+
