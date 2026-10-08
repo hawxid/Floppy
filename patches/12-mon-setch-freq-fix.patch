@@ -1,0 +1,24 @@
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
+index 332a9d3c7..e5255fb04 100644
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
+@@ -24229,10 +24229,18 @@ static int __wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
+ 	ch_info = &sta_ctx->ch_info;
+ 	roam_profile.ChannelInfo.freq_list = &ch_info->freq;
+ 	roam_profile.ChannelInfo.numOfChannels = 1;
+-	roam_profile.phyMode = ch_info->phy_mode;
+ 	roam_profile.ch_params.ch_width = ch_width;
+ 	hdd_select_cbmode(adapter, chandef->chan->center_freq,
+ 			  &roam_profile.ch_params);
++	/*
++	 * hdd_select_cbmode() only invokes hdd_mon_select_cbmode() (which
++	 * populates ch_info: freq, phy_mode) when global con_mode is
++	 * QDF_GLOBAL_MONITOR_MODE. For a monitor VIF in mission mode,
++	 * populate ch_info explicitly so the roam carries the right target.
++	 */
++	hdd_mon_select_cbmode(adapter, chandef->chan->center_freq,
++			      &roam_profile.ch_params);
++	roam_profile.phyMode = ch_info->phy_mode;
+ 
+ 	qdf_mem_copy(bssid.bytes, adapter->mac_addr.bytes,
+ 		     QDF_MAC_ADDR_SIZE);
