@@ -37,7 +37,7 @@ diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c b/drive
 +	if (!chan)
 +		return -EINVAL;
 +
-+	cfg80211_chandef_create(&chandef, chan, NL80211_CHAN_WIDTH_20);
++	cfg80211_chandef_create(&chandef, chan, NL80211_CHAN_HT20);
 +
 +	errno = osif_psoc_sync_op_start(wiphy_dev(wiphy), &psoc_sync);
 +	if (errno)
