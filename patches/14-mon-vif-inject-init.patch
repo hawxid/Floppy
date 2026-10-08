@@ -1,7 +1,7 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
-@@ -2662,6 +2662,19 @@ static int __hdd_mon_open(struct net_device *dev)
+@@ -2662,6 +2662,20 @@ static int __hdd_mon_open(struct net_device *dev)
  	if (!ret)
  		ret = hdd_enable_monitor_mode(dev);
  
