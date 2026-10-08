@@ -1,19 +1,13 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_main.c
-@@ -9805,6 +9805,13 @@ static void hdd_monitor_mode_tx_inject(struct hdd_adapter *adapter,
- 	uint64_t now;
- 	QDF_STATUS status;
- 	bool has_radiotap = false;
-+	static uint64_t tx_cnt = 0;
- 
+@@ -9812,2 +9812,9 @@
  	if (!adapter || !adapter->injection_ctx || !skb)
  		goto drop;
 +
-+	tx_cnt++;
-+	if (tx_cnt == 1 || (tx_cnt % 100) == 0)
-+		pr_err("MONDBG: mon_tx pkt #%llu via %s\n",
-+		       tx_cnt, adapter->dev->name);
- 
- 	if (!adapter->injection_ctx->is_monitor_mode)
- 		adapter->injection_ctx->is_monitor_mode = true;
++	{
++		static uint64_t tx_cnt = 0;
++		tx_cnt++;
++		if ((tx_cnt % 50) == 1)
++			pr_err("MONDBG: mon_tx #%llu via %s\n", tx_cnt, adapter->dev->name);
++	}
