@@ -1,0 +1,160 @@
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.c
+@@ -23991,6 +23991,50 @@ static int wlan_hdd_cfg80211_set_mon_ch(struct wiphy *wiphy,
+ 
+ 	return errno;
+ }
++
++/**
++ * hdd_set_monitor_channel_by_freq() - Set monitor capture channel by freq
++ * @wdev: monitor interface's wireless_dev
++ * @freq: center frequency in MHz
++ *
++ * Same channel-switch machinery as wlan_hdd_cfg80211_set_mon_ch(), but
++ * callable without passing through cfg80211's interface-concurrency check:
++ * cfg80211_set_monitor_channel() refuses with -EBUSY whenever any
++ * non-monitor interface is up, which makes channel hopping (e.g. by
++ * airodump-ng) impossible while a hotspot or STA is active.  Only the
++ * monitor adapter's own channel state is changed here; concurrent
++ * interfaces keep theirs, subject to what the firmware allows on a
++ * single radio.
++ *
++ * Return: 0 on success, negative errno otherwise.
++ */
++int hdd_set_monitor_channel_by_freq(struct wireless_dev *wdev, u32 freq)
++{
++	struct wiphy *wiphy = wdev->wiphy;
++	struct ieee80211_channel *chan;
++	struct cfg80211_chan_def chandef;
++	struct osif_psoc_sync *psoc_sync;
++	int errno;
++
++	if (wdev->iftype != NL80211_IFTYPE_MONITOR)
++		return -EOPNOTSUPP;
++
++	chan = ieee80211_get_channel(wiphy, freq);
++	if (!chan)
++		return -EINVAL;
++
++	cfg80211_chandef_create(&chandef, chan, NL80211_CHAN_WIDTH_20);
++
++	errno = osif_psoc_sync_op_start(wiphy_dev(wiphy), &psoc_sync);
++	if (errno)
++		return errno;
++
++	errno = __wlan_hdd_cfg80211_set_mon_ch(wiphy, &chandef);
++
++	osif_psoc_sync_op_stop(psoc_sync);
++
++	return errno;
++}
+ #endif
+ 
+ #define CNT_DIFF(cur, prev) \
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.h b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.h
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.h
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg80211.h
+@@ -731,5 +731,18 @@ QDF_STATUS wlan_hdd_send_sta_authorized_event(
+  */
+ int hdd_set_dynamic_antenna_mode(struct hdd_adapter *adapter,
+ 				 uint8_t num_rx_chains,
+ 				 uint8_t num_tx_chains);
++
++#ifdef FEATURE_MONITOR_MODE_SUPPORT
++/**
++ * hdd_set_monitor_channel_by_freq() - Set monitor capture channel by freq
++ * @wdev: monitor interface's wireless_dev
++ * @freq: center frequency in MHz
++ *
++ * Driver-internal entry point used by the wext SIOCSIWFREQ handler so a
++ * monitor interface can change channel without passing through cfg80211's
++ * interface-concurrency check.
++ */
++int hdd_set_monitor_channel_by_freq(struct wireless_dev *wdev, u32 freq);
++#endif
+ #endif
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_wext.c
+@@ -45,7 +45,8 @@
+ #include <wlan_hdd_wmm.h>
+ #include "utils_api.h"
+ #include "wlan_hdd_p2p.h"
++#include "wlan_hdd_cfg80211.h"
+ #ifdef FEATURE_WLAN_TDLS
+ #include "wlan_hdd_tdls.h"
+ #endif
+ 
+@@ -11110,8 +11111,71 @@ static int hdd_wext_giwmode(struct net_device *dev,
+ 	return 0;
+ }
+ 
++#ifdef FEATURE_MONITOR_MODE_SUPPORT
++/**
++ * hdd_wext_siwfreq() - SIOCSIWFREQ handler
++ * @dev: network device
++ * @info: ioctl request info (unused)
++ * @wrqu: ioctl data, wrqu->freq carries channel or frequency
++ * @extra: unused
++ *
++ * airodump-ng hops channels via SIOCSIWFREQ.  There is no generic handler
++ * for it: this kernel is built with CONFIG_CFG80211_WEXT disabled, and
++ * even where the cfg80211 wext compat layer exists, its siwfreq path ends
++ * in cfg80211_set_monitor_channel(), which refuses with -EBUSY while any
++ * non-monitor interface is up - making channel hopping impossible with a
++ * hotspot or STA active.
++ *
++ * This handler drives the driver's own monitor channel switch directly
++ * (the same machinery the nl80211 set_channel path uses), so a monitor
++ * interface can change channel regardless of other interfaces.  Whether
++ * the firmware honors a monitor channel different from a concurrent
++ * AP/STA's channel on this single-radio hardware is up to the firmware.
++ *
++ * Return: 0 on success, -EOPNOTSUPP for non-monitor interfaces,
++ * -EINVAL for a bogus channel/frequency.
++ */
++static int hdd_wext_siwfreq(struct net_device *dev,
++			    struct iw_request_info *info,
++			    union iwreq_data *wrqu, char *extra)
++{
++	struct wireless_dev *wdev = dev->ieee80211_ptr;
++	u32 freq;
++
++	if (!wdev || wdev->iftype != NL80211_IFTYPE_MONITOR)
++		return -EOPNOTSUPP;
++
++	if (wrqu->freq.e == 0) {
++		/* Channel number (airodump-ng / iwconfig style) */
++		int chan = wrqu->freq.m;
++
++		if (chan <= 0)
++			return -EINVAL;
++		if (chan <= 14)
++			freq = 2407 + chan * 5;
++		else
++			freq = 5000 + chan * 5;
++	} else {
++		/* Absolute frequency: m * 10^e Hz */
++		u64 hz = wrqu->freq.m;
++		int i;
++
++		for (i = 0; i < wrqu->freq.e; i++)
++			hz *= 10;
++		freq = (u32)(hz / 1000000);
++		if (!freq)
++			return -EINVAL;
++	}
++
++	return hdd_set_monitor_channel_by_freq(wdev, freq);
++}
++#endif
++
+ static const iw_handler we_standard[] = {
+ 	[IW_IOCTL_IDX(SIOCGIWFREQ)] = (iw_handler)hdd_wext_giwfreq,
++#ifdef FEATURE_MONITOR_MODE_SUPPORT
++	[IW_IOCTL_IDX(SIOCSIWFREQ)] = (iw_handler)hdd_wext_siwfreq,
++#endif
+ 	[IW_IOCTL_IDX(SIOCSIWMODE)] = (iw_handler)hdd_wext_siwmode,
+ 	[IW_IOCTL_IDX(SIOCGIWMODE)] = (iw_handler)hdd_wext_giwmode,
+ };
