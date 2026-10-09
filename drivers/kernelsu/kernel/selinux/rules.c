@@ -279,6 +279,9 @@ out_flush:
 	smp_mb();
 	reset_avc_cache();
 #endif
+#ifdef CONFIG_KSU_SUSFS
+	susfs_set_batch_sid();
+#endif // #ifdef CONFIG_KSU_SUSFS
 }
 
 #define KSU_SEPOLICY_MAX_BATCH_SIZE (8U * 1024U * 1024U)
@@ -354,7 +357,7 @@ static int sepol_require_not_all(const char *value, const char *name)
     return -EINVAL;
 }
 
-static int sepol_expected_argc(u32 cmd)
+int sepol_expected_argc(u32 cmd)
 {
     switch (cmd) {
     case KSU_SEPOLICY_CMD_NORMAL_PERM:
