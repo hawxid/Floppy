@@ -1,0 +1,27 @@
+From: Astro <astro@muse.ai>
+Date: Fri, 09 Oct 2026 19:59:00 +0700
+Subject: [PATCH 17] qcacld-3.0: fix TX power reading on monitor interfaces
+
+__wlan_hdd_cfg80211_get_txpower() only handles STA, P2P-client, SAP and
+P2P-GO modes. Any other mode (including QDF_MONITOR_MODE) falls into
+the default case which returns 0 with *dbm = 0, so tools like
+`iw dev <mon> info` always report 0.00 dBm on monitor interfaces.
+
+Add an explicit QDF_MONITOR_MODE case. Monitor mode has no
+association or BSS state to validate, so fall through to the normal
+wlan_hdd_get_tx_power() firmware query path.
+
+diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_power.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_power.c
+index f27a1ee..68bbadd 100644
+--- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_power.c
++++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_power.c
+@@ -2589,6 +2589,9 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
+ 			return 0;
+ 		}
+ 		break;
++	case QDF_MONITOR_MODE:
++		/* Monitor mode has no association/BSS state to validate */
++		break;
+ 	default:
+ 		hdd_debug_rl("Current interface is not supported for get tx_power");
+ 		return 0;
