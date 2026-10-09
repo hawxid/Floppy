@@ -1,21 +1,20 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
-@@ -693,6 +693,17 @@
- 	if (ret)
- 		return ERR_PTR(-EINVAL);
- 	if (adapter) {
+@@ -729,5 +729,16 @@
+ 	adapter->delete_in_progress = false;
+ 
 +#ifdef FEATURE_FRAME_INJECTION_SUPPORT
-+		/* Init injection_ctx for iw-created monitor VIF. The open-path
-+		 * init (patch 14) doesn't run for these VIFs. Do it here at
-+		 * creation time (process context, safe for malloc/timer/work). */
-+		if (!adapter->injection_ctx) {
-+			pr_err("MONVIF: Init injection at VIF creation for %s\n",
-+			       adapter->dev ? adapter->dev->name : "?");
-+			if (QDF_IS_STATUS_ERROR(hdd_init_frame_injection(adapter)))
-+				pr_err("MONVIF: Init failed at VIF creation\n");
-+		}
++	/* Init injection_ctx for monitor VIF created via iw. Placed here
++	 * (after hdd_open_adapter) because wlan_hdd_add_monitor_check may
++	 * return 0 without setting adapter when pktcapture is disabled. */
++	if (mode == QDF_MONITOR_MODE && !adapter->injection_ctx) {
++		pr_err("MONVIF: Init injection at VIF creation for %s\n",
++		       adapter->dev ? adapter->dev->name : "?");
++		if (QDF_IS_STATUS_ERROR(hdd_init_frame_injection(adapter)))
++			pr_err("MONVIF: Init failed at VIF creation\n");
++	}
 +#endif
- 		hdd_exit();
- 		return adapter->dev->ieee80211_ptr;
- 	}
+ 
+ 	/* ensure physcial soc is up */
+ 	ret = hdd_trigger_psoc_idle_restart(hdd_ctx);
