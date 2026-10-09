@@ -1,13 +1,10 @@
 diff --git a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
 --- a/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
 +++ b/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_p2p.c
-@@ -729,5 +729,16 @@
+@@ -738,5 +738,13 @@
  	adapter->delete_in_progress = false;
  
 +#ifdef FEATURE_FRAME_INJECTION_SUPPORT
-+	/* Init injection_ctx for monitor VIF created via iw. Placed here
-+	 * (after hdd_open_adapter) because wlan_hdd_add_monitor_check may
-+	 * return 0 without setting adapter when pktcapture is disabled. */
 +	if (mode == QDF_MONITOR_MODE && !adapter->injection_ctx) {
 +		pr_err("MONVIF: Init injection at VIF creation for %s\n",
 +		       adapter->dev ? adapter->dev->name : "?");
