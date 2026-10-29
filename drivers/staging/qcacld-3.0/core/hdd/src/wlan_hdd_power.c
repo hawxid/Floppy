@@ -2589,6 +2589,9 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 			return 0;
 		}
 		break;
+	case QDF_MONITOR_MODE:
+		/* Monitor mode has no association/BSS state to validate */
+		break;
 	default:
 		hdd_debug_rl("Current interface is not supported for get tx_power");
 		return 0;
