@@ -1130,7 +1130,7 @@ struct notifier_block hdd_netdev_notifier = {
 };
 
 /* variable to hold the insmod parameters */
-static int con_mode;
+int con_mode;
 
 static int con_mode_ftm;
 int con_mode_epping;
@@ -18345,7 +18345,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Qualcomm Atheros, Inc.");
 MODULE_DESCRIPTION("WLAN HOST DEVICE DRIVER");
 
-static const struct kernel_param_ops con_mode_ops = {
+const struct kernel_param_ops con_mode_ops = {
 	.set = con_mode_handler,
 	.get = param_get_int,
 };

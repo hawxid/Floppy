@@ -4797,4 +4797,11 @@ void hdd_init_start_completion(void);
  */
 void hdd_netdev_update_features(struct hdd_adapter *adapter);
 
+/**
+ * Global access to con_mode and its ops, for monitor mode switching
+ * via 'iw dev <iface> set type' (deferred HW sync work).
+ */
+extern int con_mode;
+extern const struct kernel_param_ops con_mode_ops;
+
 #endif /* end #if !defined(WLAN_HDD_MAIN_H) */

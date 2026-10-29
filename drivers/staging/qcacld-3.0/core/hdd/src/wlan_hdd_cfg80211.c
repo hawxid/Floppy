@@ -31,6 +31,7 @@
 #include <linux/etherdevice.h>
 #include <linux/uidgid.h>
 #include <linux/wireless.h>
+#include <linux/workqueue.h>
 #include "osif_sync.h"
 #include <wlan_hdd_includes.h>
 #include <net/arp.h>
@@ -17246,6 +17247,7 @@ static bool hdd_is_client_mode(enum QDF_OPMODE mode)
 	case QDF_P2P_CLIENT_MODE:
 	case QDF_P2P_DEVICE_MODE:
 	case QDF_IBSS_MODE:
+	case QDF_MONITOR_MODE:
 		return true;
 	default:
 		return false;
@@ -17257,10 +17259,62 @@ static bool hdd_is_ap_mode(enum QDF_OPMODE mode)
 	switch (mode) {
 	case QDF_SAP_MODE:
 	case QDF_P2P_GO_MODE:
+	case QDF_MONITOR_MODE:
 		return true;
 	default:
 		return false;
 	}
+}
+
+#define CON_MODE_STA		0
+#define CON_MODE_MONITOR	4
+
+/*
+ * Deferred con_mode switch with HW sync.
+ *
+ * 'iw dev <iface> set type monitor/managed' (or any nl80211
+ * set-interface-type caller, e.g. airodump-ng) lands in
+ * __wlan_hdd_cfg80211_change_iface(). The adapter mode switch alone is not
+ * enough on qcacld: the whole driver must be restarted in the new global
+ * mode, exactly like 'echo <mode> > /sys/module/wlan/parameters/con_mode'.
+ * That restart cannot run synchronously inside the cfg80211 op, so it is
+ * deferred to a workqueue which invokes the con_mode sysfs setter.
+ */
+static atomic_t hw_sync_scheduled = ATOMIC_INIT(0);
+static void do_hw_sync_work(struct work_struct *work);
+static DECLARE_WORK(monitor_work, do_hw_sync_work);
+static inline void request_hw_sync(enum QDF_OPMODE new_mode)
+{
+	int new_val = (new_mode == QDF_MONITOR_MODE) ?
+				CON_MODE_MONITOR : CON_MODE_STA;
+
+	WRITE_ONCE(con_mode, new_val);
+
+	if (atomic_xchg(&hw_sync_scheduled, 1) == 0)
+		queue_work(system_unbound_wq, &monitor_work);
+}
+
+static void do_hw_sync_work(struct work_struct *work)
+{
+	struct kernel_param kp = {
+		.name = "con_mode",
+		.ops  = &con_mode_ops,
+		.arg  = &con_mode,
+	};
+	char mode_str[16];
+	int val;
+
+	val = READ_ONCE(con_mode);
+	snprintf(mode_str, sizeof(mode_str), "%d", val);
+	pr_info("wlan: Syncing HW to con_mode '%s'\n", mode_str);
+
+	if (con_mode_ops.set)
+		con_mode_ops.set(mode_str, &kp);
+	else
+		pr_warn("wlan: con_mode_ops.set is NULL\n");
+
+	if (atomic_xchg(&hw_sync_scheduled, 0) == 1)
+		queue_work(system_unbound_wq, &monitor_work);
 }
 
 /**
@@ -17438,6 +17492,11 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 
 	ndev->ieee80211_ptr->iftype = type;
 	hdd_lpass_notify_mode_change(adapter);
+	/* Deferred full driver restart into the new global mode, so that
+	 * 'iw dev <iface> set type monitor/managed' actually takes effect
+	 * on the hardware (same as echo > .../parameters/con_mode).
+	 */
+	request_hw_sync(new_mode);
 err:
 	/* Set bitmask based on updated value */
 	policy_mgr_set_concurrency_mode(hdd_ctx->psoc, adapter->device_mode);
