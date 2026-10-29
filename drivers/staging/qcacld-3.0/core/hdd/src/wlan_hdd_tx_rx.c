@@ -59,6 +59,9 @@
 #include <wlan_hdd_tsf.h>
 #include <net/tcp.h>
 #include "wma_api.h"
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+#include "wlan_hdd_frame_inject.h"
+#endif
 
 #include "wlan_hdd_nud_tracking.h"
 #include "dp_txrx.h"
@@ -895,6 +898,104 @@ void hdd_get_transmit_mac_addr(struct hdd_adapter *adapter, struct sk_buff *skb,
 	}
 }
 
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+static bool hdd_is_monitor_tx_dev(struct hdd_adapter *adapter,
+				  struct net_device *dev)
+{
+	if (!adapter || !dev)
+		return false;
+
+	if (adapter->device_mode == QDF_MONITOR_MODE)
+		return true;
+
+	if (dev->type == ARPHRD_IEEE80211_RADIOTAP)
+		return true;
+
+	if (dev->ieee80211_ptr &&
+	    dev->ieee80211_ptr->iftype == NL80211_IFTYPE_MONITOR)
+		return true;
+
+	return false;
+}
+
+static void hdd_monitor_mode_tx_inject(struct hdd_adapter *adapter,
+				       struct net_device *dev,
+				       struct sk_buff *skb)
+{
+	struct ieee80211_radiotap_header *rthdr;
+	struct inject_frame_req *req;
+	uint8_t *frame_data;
+	uint16_t rtap_len;
+	uint32_t frame_len;
+	uint64_t now;
+	QDF_STATUS status;
+	bool has_radiotap = false;
+
+	if (!adapter || !adapter->injection_ctx || !skb)
+		goto drop;
+
+	if (!adapter->injection_ctx->is_monitor_mode)
+		adapter->injection_ctx->is_monitor_mode = true;
+
+	if (skb->len < 10)
+		goto drop;
+
+	if (skb->len >= sizeof(*rthdr)) {
+		rthdr = (struct ieee80211_radiotap_header *)skb->data;
+		if (rthdr->it_version == 0) {
+			rtap_len = ieee80211_get_radiotap_len(skb->data);
+			if (rtap_len >= sizeof(*rthdr) && rtap_len < skb->len)
+				has_radiotap = true;
+		}
+	}
+
+	if (has_radiotap) {
+		frame_data = skb->data + rtap_len;
+		frame_len = skb->len - rtap_len;
+	} else {
+		frame_data = skb->data;
+		frame_len = skb->len;
+	}
+
+	if (!frame_len || frame_len > HDD_FRAME_INJECT_MAX_SIZE)
+		goto drop;
+
+	req = qdf_mem_malloc(sizeof(*req));
+	if (!req)
+		goto drop;
+
+	req->frame_data = qdf_mem_malloc(frame_len);
+	if (!req->frame_data) {
+		qdf_mem_free(req);
+		goto drop;
+	}
+
+	qdf_mem_copy(req->frame_data, frame_data, frame_len);
+	now = qdf_get_log_timestamp();
+
+	req->frame_len = frame_len;
+	req->tx_flags = 0;
+	req->retry_count = 0;
+	req->tx_rate = 0;
+	req->timestamp = now;
+	req->session_id = (uint32_t)now;
+	req->submit_time = now;
+	req->queue_time = 0;
+	req->process_time = 0;
+	req->complete_time = 0;
+
+	status = hdd_process_frame_injection(adapter, req);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err_rl("monitor tx injection failed: status=%d", status);
+		qdf_mem_free(req->frame_data);
+		qdf_mem_free(req);
+	}
+
+drop:
+	kfree_skb(skb);
+}
+#endif
+
 #ifdef HANDLE_BROADCAST_EAPOL_TX_FRAME
 /**
  * wlan_hdd_fix_broadcast_eapol() - Fix broadcast eapol
@@ -959,6 +1060,13 @@ static void __hdd_hard_start_xmit(struct sk_buff *skb,
 	struct wlan_objmgr_vdev *vdev;
 	struct hdd_context *hdd_ctx;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+#ifdef FEATURE_FRAME_INJECTION_SUPPORT
+	if (hdd_is_monitor_tx_dev(adapter, dev)) {
+		hdd_monitor_mode_tx_inject(adapter, dev, skb);
+		return;
+	}
+#endif
 
 #ifdef QCA_WIFI_FTM
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
@@ -1480,73 +1588,6 @@ static bool hdd_is_mcast_replay(struct sk_buff *skb)
 				skb->dev->dev_addr)))
 			return true;
 	}
-	return false;
-}
-
-/**
- * hdd_is_arp_local() - check if local or non local arp
- * @skb: pointer to sk_buff
- *
- * Return: true if local arp or false otherwise.
- */
-static bool hdd_is_arp_local(struct sk_buff *skb)
-{
-	struct arphdr *arp;
-	struct in_ifaddr **ifap = NULL;
-	struct in_ifaddr *ifa = NULL;
-	struct in_device *in_dev;
-	unsigned char *arp_ptr;
-	__be32 tip;
-
-	arp = (struct arphdr *)skb->data;
-	if (arp->ar_op == htons(ARPOP_REQUEST)) {
-		/* if fail to acquire rtnl lock, assume it's local arp */
-		if (!rtnl_trylock())
-			return true;
-
-		in_dev = __in_dev_get_rtnl(skb->dev);
-		if (in_dev) {
-			for (ifap = &in_dev->ifa_list; (ifa = *ifap) != NULL;
-				ifap = &ifa->ifa_next) {
-				if (!strcmp(skb->dev->name, ifa->ifa_label))
-					break;
-			}
-		}
-
-		if (ifa && ifa->ifa_local) {
-			arp_ptr = (unsigned char *)(arp + 1);
-			arp_ptr += (skb->dev->addr_len + 4 +
-					skb->dev->addr_len);
-			memcpy(&tip, arp_ptr, 4);
-			hdd_debug("ARP packet: local IP: %x dest IP: %x",
-				ifa->ifa_local, tip);
-			if (ifa->ifa_local == tip) {
-				rtnl_unlock();
-				return true;
-			}
-		}
-		rtnl_unlock();
-	}
-
-	return false;
-}
-
-/**
- * hdd_is_rx_wake_lock_needed() - check if wake lock is needed
- * @skb: pointer to sk_buff
- *
- * RX wake lock is needed for:
- * 1) Unicast data packet OR
- * 2) Local ARP data packet
- *
- * Return: true if wake lock is needed or false otherwise.
- */
-static bool hdd_is_rx_wake_lock_needed(struct sk_buff *skb)
-{
-	if ((skb->pkt_type != PACKET_BROADCAST &&
-	     skb->pkt_type != PACKET_MULTICAST) || hdd_is_arp_local(skb))
-		return true;
-
 	return false;
 }
 
@@ -2322,7 +2363,6 @@ QDF_STATUS hdd_rx_packet_cbk(void *adapter_context,
 	struct hdd_station_ctx *sta_ctx = NULL;
 	unsigned int cpu_index;
 	struct qdf_mac_addr *mac_addr, *dest_mac_addr;
-	bool wake_lock = false;
 	uint8_t pkt_type = 0;
 	bool track_arp = false;
 	struct wlan_objmgr_vdev *vdev;
@@ -2430,21 +2470,6 @@ QDF_STATUS hdd_rx_packet_cbk(void *adapter_context,
 						rx_usolict_arp_n_mcast_drp);
 			qdf_nbuf_free(skb);
 			continue;
-		}
-
-		/* hold configurable wakelock for unicast traffic */
-		if (!hdd_is_current_high_throughput(hdd_ctx) &&
-		    hdd_ctx->config->rx_wakelock_timeout &&
-		    sta_ctx->conn_info.is_authenticated)
-			wake_lock = hdd_is_rx_wake_lock_needed(skb);
-
-		if (wake_lock) {
-			cds_host_diag_log_work(&hdd_ctx->rx_wake_lock,
-						   hdd_ctx->config->rx_wakelock_timeout,
-						   WIFI_POWER_EVENT_WAKELOCK_HOLD_RX);
-			qdf_wake_lock_timeout_acquire(&hdd_ctx->rx_wake_lock,
-							  hdd_ctx->config->
-								  rx_wakelock_timeout);
 		}
 
 		/* Remove SKB from internal tracking table before submitting
@@ -3014,19 +3039,19 @@ int hdd_set_mon_rx_cb(struct net_device *dev)
 	cdp_vdev_register(soc, adapter->vdev_id,
 			  (ol_osif_vdev_handle)adapter,
 			  &txrx_ops);
-	/* peer is created wma_vdev_attach->wma_create_peer */
-	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &sta_desc);
-	if (QDF_STATUS_SUCCESS != qdf_status) {
-		hdd_err("cdp_peer_register() failed to register. Status= %d [0x%08X]",
-			qdf_status, qdf_status);
-		goto exit;
-	}
-
 	qdf_status = sme_create_mon_session(hdd_ctx->mac_handle,
 					    adapter->mac_addr.bytes,
 					    adapter->vdev_id);
 	if (QDF_STATUS_SUCCESS != qdf_status) {
 		hdd_err("sme_create_mon_session() failed to register. Status= %d [0x%08X]",
+			qdf_status, qdf_status);
+		goto exit;
+	}
+
+	/* peer is created wma_vdev_attach->wma_create_peer */
+	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &sta_desc);
+	if (QDF_STATUS_SUCCESS != qdf_status) {
+		hdd_err("cdp_peer_register() failed to register. Status= %d [0x%08X]",
 			qdf_status, qdf_status);
 	}
 
@@ -3095,7 +3120,7 @@ void hdd_send_rps_ind(struct hdd_adapter *adapter)
 			  i, rps_data.cpu_map_list[i]);
 	}
 
-	strlcpy(rps_data.ifname, adapter->dev->name,
+	strscpy(rps_data.ifname, adapter->dev->name,
 			sizeof(rps_data.ifname));
 	wlan_hdd_send_svc_nlink_msg(hdd_ctxt->radio_index,
 				WLAN_SVC_RPS_ENABLE_IND,
@@ -3141,7 +3166,7 @@ void hdd_send_rps_disable_ind(struct hdd_adapter *adapter)
 
 	qdf_mem_zero(&rps_data.cpu_map_list, sizeof(rps_data.cpu_map_list));
 
-	strlcpy(rps_data.ifname, adapter->dev->name, sizeof(rps_data.ifname));
+	strscpy(rps_data.ifname, adapter->dev->name, sizeof(rps_data.ifname));
 	wlan_hdd_send_svc_nlink_msg(hdd_ctxt->radio_index,
 				    WLAN_SVC_RPS_ENABLE_IND,
 				    &rps_data, sizeof(rps_data));
@@ -3523,8 +3548,6 @@ void hdd_dp_cfg_update(struct wlan_objmgr_psoc *psoc,
 	hdd_set_rx_mode_value(hdd_ctx);
 	config->multicast_replay_filter =
 		cfg_get(psoc, CFG_DP_FILTER_MULTICAST_REPLAY);
-	config->rx_wakelock_timeout =
-		cfg_get(psoc, CFG_DP_RX_WAKELOCK_TIMEOUT);
 	config->num_dp_rx_threads = cfg_get(psoc, CFG_DP_NUM_DP_RX_THREADS);
 	config->cfg_wmi_credit_cnt = cfg_get(psoc, CFG_DP_HTC_WMI_CREDIT_CNT);
 	hdd_dp_dp_trace_cfg_update(config, psoc);
