@@ -1056,6 +1056,5 @@ CONFIG_WLAN_WEXT_SUPPORT_ENABLE := y
 CONFIG_WLAN_CFR_ENABLE := y
 CONFIG_WLAN_ENH_CFR_ENABLE := y
 
-# DBR required by CFR (cfr_common needs direct_buf_rx_metadata definition)
-CONFIG_DIRECT_BUF_RX_ENABLE := y
+# WMI_DBR_SUPPORT for CFR struct definition only (no DBR objects: hal_api.h unavailable for trinket)
 CONFIG_WMI_DBR_SUPPORT := y
