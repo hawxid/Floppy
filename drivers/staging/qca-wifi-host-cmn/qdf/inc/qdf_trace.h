@@ -26,8 +26,13 @@
  */
 
 /* Include Files */
+#include <linux/version.h>
 #include  <qdf_types.h>         /* For QDF_MODULE_ID... */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+#include  <linux/stdarg.h>      /* For va_list... */
+#else
 #include  <stdarg.h>            /* For va_list... */
+#endif
 #include  <qdf_status.h>
 #include  <qdf_nbuf.h>
 #include  <i_qdf_types.h>
@@ -1165,7 +1170,6 @@ qdf_tso_seg_dbg_zero(struct qdf_tso_seg_elem_t *tsoseg)
 
 #endif /* TSOSEG_DEBUG */
 
-#ifdef QDF_ENABLE_TRACING
 /**
  * qdf_trace_hex_dump() - externally called hex dump function
  * @module: Module identifier a member of the QDF_MODULE_ID enumeration that
@@ -1199,12 +1203,6 @@ void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
  */
 void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
 			      void *data, int buf_len);
-#else
-static inline void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
-			void *data, int buf_len) {}
-static inline void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
-			      void *data, int buf_len) {}
-#endif
 
 #define ERROR_CODE                      -1
 #define QDF_MAX_NAME_SIZE               32
