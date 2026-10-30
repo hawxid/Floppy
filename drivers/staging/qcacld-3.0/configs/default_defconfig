@@ -1051,10 +1051,3 @@ CONFIG_FEATURE_FRAME_INJECTION_SUPPORT := y
 
 #Enable WEXT support for STA/AP/P2P interfaces (needed for airodump-ng channel readout)
 CONFIG_WLAN_WEXT_SUPPORT_ENABLE := y
-
-#Enable CFR capture (WiFi sensing / CSI via vendor subcmd 173)
-CONFIG_WLAN_CFR_ENABLE := y
-CONFIG_WLAN_ENH_CFR_ENABLE := y
-
-# WMI_DBR_SUPPORT for CFR struct definition only (no DBR objects: hal_api.h unavailable for trinket)
-CONFIG_WMI_DBR_SUPPORT := y
